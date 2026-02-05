@@ -300,6 +300,78 @@
         "translation": "Soft Cutoff"
       }
     },
+    "ESC_PARAMETERS_KONTRONIK": {
+      "flight_Mode": {
+        "english": "Type of Model - load defaults",
+        "needs_translation": false,
+        "translation": "Type of Model - load defaults"
+      },
+      "battery_type": {
+        "english": "Battery Type",
+        "needs_translation": false,
+        "translation": "Battery Type"
+      },
+      "pole_number": {
+        "english": "Enter the Number of Poles of the Motor",
+        "needs_translation": false,
+        "translation": "Enter the number of Poles of the Motor"
+      },
+      "discharge_limit": {
+        "english": "Discharge Limit in mAh",
+        "needs_translation": false,
+        "translation": "Discharge Limit in mAh"
+      },
+      "tbl_sailplane": {
+        "english": "Sailplane",
+        "needs_translation": false,
+        "translation": "Sailplane"
+      },
+      "tbl_motorplane": {
+        "english": "Motorplane",
+        "needs_translation": false,
+        "translation": "Motorplane"
+      },
+      "tbl_helicopter": {
+        "english": "Helicopter",
+        "needs_translation": false,
+        "translation": "Helicopter"
+      },
+      "tbl_auto": {
+        "english": "Auto",
+        "needs_translation": false,
+        "translation": "Auto"
+      },
+      "tbl_undervoltage_behavior_slow": {
+        "english": "slow down",
+        "needs_translation": false,
+        "translation": "slow down"
+      },
+      "tbl_undervoltage_behavior_shut": {
+        "english": "shut down",
+        "needs_translation": false,
+        "translation": "shut down"
+      },
+        "tbl_how_adj_max_rpm_idleup": {
+          "english": "At Idle Up",
+          "needs_translation": false,
+          "translation": "At Idle Up"
+        },
+        "tbl_how_adj_max_rpm_govstore": {
+          "english": "Stored in EEPROM - Governor Store",
+          "needs_translation": false,
+          "translation": "Stored in EEPROM - Governor Store"
+        },
+      "undervoltage_cell": {
+        "english": "per Cell Cutoff Value",
+        "needs_translation": false,
+        "translation": "per Cell Cutoff Value"
+      },
+      "gear_ratio": {
+        "english": "(Usually not needed in RF2) Input Main Gear Ratio 1: value x 0.01",
+        "needs_translation": false,
+        "translation": "(Usually not needed in RF2) Input Main Gear Ratio value x 0.01"
+      }
+    },
     "ESC_PARAMETERS_OMP": {
       "tbl_auto": {
         "english": "Auto",
@@ -2586,6 +2658,138 @@
               "english": "Volt Cutoff Type",
               "needs_translation": false,
               "translation": "Volt Cutoff Type"
+            }
+          },
+          "kontr": {
+            "alarm": {
+              "english": "Alarm",
+              "needs_translation": false,
+              "translation": "Alarm"
+            },
+            "motor": {
+              "english": "Motor",
+              "needs_translation": false,
+              "translation": "Motor"
+            },
+            "battery_type": {
+              "english": "Battery Type",
+              "needs_translation": false,
+              "translation": "Battery Type"
+            },
+            "basic": {
+              "english": "Basic",
+              "needs_translation": false,
+              "translation": "Basic"
+            },
+            "bec_voltage": {
+              "english": "BEC Voltage",
+              "needs_translation": false,
+              "translation": "BEC Voltage"
+            },
+            "discharge_limiter_act": {
+              "english": "Discharge Limiter",
+              "needs_translation": false,
+              "translation": "Discharge Limiter"
+            },
+            "discharge_limit": {
+              "english": "Discharge Limit",
+              "needs_translation": false,
+              "translation": "Discharge Limit"
+            },
+            "flight_mode": {
+              "english": "Flight Mode (Reset!)",
+              "needs_translation": false,
+              "translation": "Flight Mode (Reset!)"
+            },
+            "fwd_bckwd": {
+              "english": "Forward/Backward",
+              "needs_translation": false,
+              "translation": "Forward/Backward"
+            },
+            "gear_ratio": {
+              "english": "Main Gear Ratio 1:",
+              "needs_translation": false,
+              "translation": "Main Gear Ratio 1:"
+            },
+            "brake": {
+              "english": "Brake",
+              "needs_translation": false,
+              "translation": "Brake"
+            },
+            "rpm_ctl": {
+              "english": "RPM Control",
+              "needs_translation": false,
+              "translation": "RPM Control"
+            },
+            "max_discharge": {
+              "english": "Alarm max discharge",
+              "needs_translation": false,
+              "translation": "Alarm max discharge"
+            },
+            "min_input_voltage": {
+              "english": "Alarm min input voltage",
+              "needs_translation": false,
+              "translation": "Alarm min input voltage"
+            },
+            "max_motor_current": {
+              "english": "Alarm max motor current",
+              "needs_translation": false,
+              "translation": "Alarm max motor current"
+            },
+            "max_esc_temp": {
+              "english": "Alarm max ESC temperature",
+              "needs_translation": false,
+              "translation": "Alarm max ESC temperature"
+            },
+            "max_bec_temp": {
+              "english": "Alarm max BEC temperature",
+              "needs_translation": false,
+              "translation": "Alarm max BEC temperature"
+            },
+            "max_bec_current": {
+              "english": "Alarm max BEC current",
+              "needs_translation": false,
+              "translation": "Alarm max BEC current"
+            },
+            "name": {
+              "english": "KONTRONIK",
+              "needs_translation": false,
+              "translation": "KONTRONIK"
+            },
+            "other": {
+              "english": "Other",
+              "needs_translation": false,
+              "translation": "Other"
+            },
+            "esc_status": {
+              "english": "ESC Live Status",
+              "needs_translation": false,
+              "translation": "ESC Live Status"
+            },
+            "pole_number": {
+              "english": "Pole Count",
+              "needs_translation": false,
+              "translation": "Pole Count"
+            },
+            "how_adj_max_rpm": {
+              "english": "How to adjust max RPM",
+              "needs_translation": false,
+              "translation": "How to adjust max RPM"
+            },
+            "rotation": {
+              "english": "Reverse Rotation",
+              "needs_translation": false,
+              "translation": "Reverse Rotation"
+            },
+            "undervoltage_behavior": {
+              "english": "Undervoltage Behavior",
+              "needs_translation": false,
+              "translation": "Undervoltage Behavior"
+            },
+            "undervoltage_cell": {
+              "english": "... at a Cell Voltage of",
+              "needs_translation": false,
+            "translation": "... at a Cell Voltage of"
             }
           },
           "omp": {
