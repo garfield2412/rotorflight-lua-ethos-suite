@@ -2776,6 +2776,51 @@
               "needs_translation": false,
               "translation": "How to adjust max RPM"
             },
+            "startuptime": {
+              "english": "Startup Time",
+              "needs_translation": false,
+              "translation": "Startup Time"
+            },
+            "p-gain": {
+              "english": "P-Gain",
+              "needs_translation": false,
+              "translation": "P-Gain"
+            },
+            "motor_resist": {
+              "english": "Motor Resistance Compensation",
+              "needs_translation": false,
+              "translation": "Motor Resistance Compensation"
+            },
+            "PWM_min": {
+              "english": "PWM minimum",
+              "needs_translation": false,
+              "translation": "PWM minimum"
+            },
+            "slewrate_up": {
+              "english": "Slew Rate Up",
+              "needs_translation": false,
+              "translation": "Slew Rate Up"
+            },
+            "slewrate_down": {
+              "english": "Slew Rate Down",
+              "needs_translation": false,
+              "translation": "Slew Rate Down"
+            },
+            "extra_smooth_IU": {
+              "english": "Extra Smooth Idle Up",
+              "needs_translation": false,
+              "translation": "Extra Smooth Idle Up"
+            },
+            "alternate_startup": {
+              "english": "Alternate Startup",
+              "needs_translation": false,
+              "translation": "Alternate Startup"
+            },
+            "startup_curr_limit": {
+              "english": "Startup Current Limit",
+              "needs_translation": false,
+              "translation": "Startup Current Limit"
+            },
             "rotation": {
               "english": "Reverse Rotation",
               "needs_translation": false,
