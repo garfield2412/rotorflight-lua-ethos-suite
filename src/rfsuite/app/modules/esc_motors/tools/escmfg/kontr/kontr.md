@@ -67,3 +67,17 @@ if we answer to the handshake, we can receive the actual settings and status and
 ## Open Questions
 
 How to get an Handshake if ESC is allready powerd u and not sednding anything. Maxbee via programming button?
+How to send and receive via MSP
+How to build an developer environment to debug the received string
+How to map string values from the ESC Stream to Fields
+
+## Screenshots
+<img width="783" height="398" alt="grafik" src="https://github.com/user-attachments/assets/11f46986-0e0d-481a-8581-ea0dd1b36a36" />
+<img width="792" height="327" alt="grafik" src="https://github.com/user-attachments/assets/e8ed40c5-49be-4b62-b7fe-232d49ebe402" />
+<img width="795" height="485" alt="grafik" src="https://github.com/user-attachments/assets/9ba4c140-30bc-471d-b633-78a114d1b132" />
+<img width="799" height="466" alt="grafik" src="https://github.com/user-attachments/assets/ab741a4b-c65e-4225-a243-ff37f973213d" />
+<img width="795" height="469" alt="grafik" src="https://github.com/user-attachments/assets/77378e19-4035-4771-ba15-e582ab9c49e1" />
+
+
+
+
