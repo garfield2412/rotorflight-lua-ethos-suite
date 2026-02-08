@@ -4,6 +4,7 @@
 ]] --
 
 local rfsuite = require("rfsuite")
+local lcd = lcd
 
 local pages = {}
 
@@ -21,6 +22,9 @@ local powercycleLoader
 local powercycleLoaderCounter = 0
 local powercycleLoaderRateLimit = 2
 local showPowerCycleLoaderFinished = false
+local powercycleLoaderBaseMessage
+local powercycleLoaderMspStatusLast
+local MSP_DEBUG_PLACEHOLDER = "MSP Waiting"
 
 local modelField
 local versionField
@@ -32,6 +36,20 @@ local findTimeout = math.floor(rfsuite.tasks.msp.protocol.pageReqTimeout * 0.5)
 local modelLine
 local modelText
 local modelTextPos = {x = 0, y = rfsuite.app.radio.linePaddingTop, w = rfsuite.app.lcdWidth, h = rfsuite.app.radio.navbuttonHeight}
+
+local function openProgressDialog(...)
+    if rfsuite.utils.ethosVersionAtLeast({1, 7, 0}) and form.openWaitDialog then
+        local arg1 = select(1, ...)
+        if type(arg1) == "table" then
+            arg1.progress = true
+            return form.openWaitDialog(arg1)
+        end
+        local title = arg1
+        local message = select(2, ...)
+        return form.openWaitDialog({title = title, message = message, progress = true})
+    end
+    return form.openProgressDialog(...)
+end
 
 
 -- Update the model/version header without creating overlapping widgets.
@@ -103,6 +121,13 @@ local function getESCDetails()
     API.setUUID("550e8400-e29b-41d4-a716-546a55340500")
     API.read()
 
+end
+
+local function updatePowercycleLoaderMessage()
+    if not powercycleLoader or not powercycleLoaderBaseMessage then return end
+    if rfsuite.app and rfsuite.app.ui and rfsuite.app.ui.updateProgressDialogMessage then
+        rfsuite.app.ui.updateProgressDialogMessage()
+    end
 end
 
 local function openPage(pidx, title, script)
@@ -283,11 +308,14 @@ local function wakeup()
 
         if ESC and ESC.powerCycle == true and showPowerCycleLoader == true then
             powercycleLoader:close()
+            rfsuite.app.ui.clearProgressDialog(powercycleLoader)
             powercycleLoaderCounter = 0
             showPowerCycleLoaderInProgress = false
             showPowerCycleLoader = false
             showPowerCycleLoaderFinished = true
             rfsuite.app.triggers.isReady = true
+            powercycleLoaderBaseMessage = nil
+            powercycleLoaderMspStatusLast = nil
         end
 
         rfsuite.app.triggers.closeProgressLoader = true
@@ -315,9 +343,11 @@ local function wakeup()
             powercycleLoaderRateLimit = now
             powercycleLoaderCounter = powercycleLoaderCounter + 5
             powercycleLoader:value(powercycleLoaderCounter)
+            updatePowercycleLoaderMessage()
 
             if powercycleLoaderCounter >= 100 then
                 powercycleLoader:close()
+                rfsuite.app.ui.clearProgressDialog(powercycleLoader)
                 setModelHeaderText("@i18n(app.modules.esc_tools.unknown)@")
                 showPowerCycleLoaderInProgress = false
                 rfsuite.app.triggers.disableRssiTimeout = false
@@ -325,6 +355,8 @@ local function wakeup()
                 rfsuite.app.audio.playTimeout = true
                 showPowerCycleLoaderFinished = true
                 rfsuite.app.triggers.isReady = false
+                powercycleLoaderBaseMessage = nil
+                powercycleLoaderMspStatusLast = nil
             end
 
         end
@@ -337,9 +369,13 @@ local function wakeup()
             showPowerCycleLoaderInProgress = true
             rfsuite.app.audio.playEscPowerCycle = true
             rfsuite.app.triggers.disableRssiTimeout = true
-            powercycleLoader = form.openProgressDialog("@i18n(app.modules.esc_tools.searching)@", "@i18n(app.modules.esc_tools.please_powercycle)@")
+            powercycleLoader = openProgressDialog("@i18n(app.modules.esc_tools.searching)@", "@i18n(app.modules.esc_tools.please_powercycle)@")
             powercycleLoader:value(0)
             powercycleLoader:closeAllowed(false)
+            powercycleLoaderBaseMessage = "@i18n(app.modules.esc_tools.please_powercycle)@"
+            powercycleLoaderMspStatusLast = nil
+            updatePowercycleLoaderMessage()
+            rfsuite.app.ui.registerProgressDialog(powercycleLoader, powercycleLoaderBaseMessage)
         end
     end
 
@@ -348,7 +384,12 @@ end
 local function event(widget, category, value, x, y)
 
     if category == EVT_CLOSE and value == 0 or value == 35 then
-        if powercycleLoader then powercycleLoader:close() end
+        if powercycleLoader then
+            powercycleLoader:close()
+            powercycleLoaderBaseMessage = nil
+            powercycleLoaderMspStatusLast = nil
+            rfsuite.app.ui.clearProgressDialog(powercycleLoader)
+        end
         rfsuite.app.ui.openPage(pidx, "@i18n(app.modules.esc_tools.name)@", "esc_motors/tools/esc.lua")
         return true
     end

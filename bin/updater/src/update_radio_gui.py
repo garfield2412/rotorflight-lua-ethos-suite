@@ -35,7 +35,7 @@ import atexit
 # GUI imports
 try:
     import tkinter as tk
-    from tkinter import ttk, scrolledtext, messagebox
+    from tkinter import ttk, scrolledtext, messagebox, filedialog
 except ImportError:
     print("Error: tkinter is required but not found.")
     sys.exit(1)
@@ -88,12 +88,60 @@ AVAILABLE_LOCALES = ["en", "de", "es", "fr", "it", "nl"]
 DOWNLOAD_TIMEOUT = 120
 DOWNLOAD_RETRIES = 3
 DOWNLOAD_RETRY_DELAY = 2
-COPY_SETTLE_SECONDS = 0.02
+COPY_SETTLE_SECONDS = 0.03
 LOGO_URL = "https://raw.githubusercontent.com/rotorflight/rotorflight-lua-ethos-suite/master/bin/updater/src/logo.png"
-UPDATER_VERSION = "0.0.0"
+UPDATER_VERSION = "1.0.1"
 UPDATER_RELEASE_JSON_URL = "https://raw.githubusercontent.com/rotorflight/rotorflight-lua-ethos-suite/master/bin/updater/src/release.json"
 UPDATER_INFO_URL = "https://github.com/rotorflight/rotorflight-lua-ethos-suite/tree/master/bin/updater/"
-UPDATER_LOCK_FILE = os.path.join(tempfile.gettempdir(), "rfsuite_updater.lock")
+def _get_app_dir():
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = _get_app_dir()
+def _get_work_dir():
+    # Keep runtime files out of the current working directory on macOS/Linux.
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "rfsuite-updater"
+    if sys.platform.startswith("linux"):
+        return Path.home() / ".local" / "share" / "rfsuite-updater"
+    return APP_DIR / "rfsuite_updater_work"
+
+WORK_DIR = _get_work_dir()
+try:
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+except Exception:
+    WORK_DIR = Path(tempfile.gettempdir()) / "rfsuite_updater_work"
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
+
+UPDATER_LOCK_FILE = str(WORK_DIR / "rfsuite_updater.lock")
+
+
+def _ensure_work_dir():
+    try:
+        WORK_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+
+def _cleanup_work_dir():
+    try:
+        if WORK_DIR.is_dir():
+            for item in WORK_DIR.iterdir():
+                try:
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+                except Exception:
+                    pass
+            try:
+                WORK_DIR.rmdir()
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 # Version types
 VERSION_RELEASE = "release"
@@ -334,9 +382,14 @@ USB_MODE_DEBUG = 0x68    # Start debug mode
 class RadioInterface:
     """Interface to communicate with Ethos radio via USB HID."""
     
-    def __init__(self):
+    def __init__(self, log_cb=None):
         self.device = None
         self.drives = {}
+        self.log_cb = log_cb
+
+    def _log(self, message):
+        if self.log_cb:
+            self.log_cb(message)
     
     def connect(self):
         """Connect to the Ethos radio."""
@@ -346,7 +399,7 @@ class RadioInterface:
         
         try:
             if HID_MODULE_PATH:
-                self.log(f"HID module: {HID_MODULE_PATH}")
+                self._log(f"HID module: {HID_MODULE_PATH}")
             # Try to open the HID device
             self.device = hid.device()
             self.device.open(ETHOS_VID, ETHOS_PID)
@@ -376,6 +429,28 @@ class RadioInterface:
         except Exception as e:
             raise RuntimeError(f"Failed to switch to storage mode: {e}")
     
+    def _iter_mount_roots(self):
+        """Yield potential mount roots on Unix-like systems."""
+        for base in ["/Volumes", "/media", "/mnt", "/run/media"]:
+            if not os.path.isdir(base):
+                continue
+            try:
+                for entry in os.scandir(base):
+                    if not entry.is_dir():
+                        continue
+                    # Common layout on Linux: /run/media/<user>/<label>
+                    if base in ("/run/media", "/media"):
+                        try:
+                            for sub in os.scandir(entry.path):
+                                if sub.is_dir():
+                                    yield sub.path
+                        except Exception:
+                            continue
+                    # Direct mount under base (macOS /Volumes, some /mnt)
+                    yield entry.path
+            except Exception:
+                continue
+
     def scan_for_drives(self):
         """Scan for mounted radio drives."""
         self.drives = {}
@@ -400,18 +475,11 @@ class RadioInterface:
                     continue
         else:
             # Unix-like systems
-            for base in ["/Volumes", "/media", "/mnt"]:
-                if not os.path.isdir(base):
-                    continue
-                try:
-                    for entry in os.listdir(base):
-                        root = os.path.join(base, entry)
-                        for key in ('flash', 'sdcard', 'radio'):
-                            marker = os.path.join(root, key + ".cpuid")
-                            if os.path.exists(marker):
-                                self.drives[key] = root
-                except Exception:
-                    continue
+            for root in self._iter_mount_roots():
+                for key in ('flash', 'sdcard', 'radio'):
+                    marker = os.path.join(root, key + ".cpuid")
+                    if os.path.exists(marker):
+                        self.drives[key] = root
         
         return self.drives
     
@@ -447,18 +515,11 @@ class RadioInterface:
                     continue
             return None
         else:
-            for base in ["/Volumes", "/media", "/mnt"]:
-                if not os.path.isdir(base):
-                    continue
-                try:
-                    for entry in os.listdir(base):
-                        root = os.path.join(base, entry)
-                        for folder in ("scripts", "script"):
-                            scripts = os.path.join(root, folder)
-                            if os.path.isdir(scripts):
-                                return os.path.normpath(scripts)
-                except Exception:
-                    continue
+            for root in self._iter_mount_roots():
+                for folder in ("scripts", "script"):
+                    scripts = os.path.join(root, folder)
+                    if os.path.isdir(scripts):
+                        return os.path.normpath(scripts)
             return None
 
 
@@ -468,10 +529,9 @@ class UpdaterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Rotorflight Lua Ethos Suite Updater")
-        self.root.geometry("700x680")
-        self.root.resizable(True, True)
+        self.root.geometry("800x800")
+        self.root.resizable(False, False)
         
-        self.radio = RadioInterface()
         self.update_thread = None
         self.is_updating = False
         self.selected_version = tk.StringVar(value=VERSION_RELEASE)
@@ -479,6 +539,7 @@ class UpdaterGUI:
         self.chkdsk_attempted = False
         
         self.setup_ui()
+        self.radio = RadioInterface(self.log)
     
     def setup_ui(self):
         """Setup the user interface."""
@@ -532,8 +593,8 @@ class UpdaterGUI:
         def set_logo_image(path):
             try:
                 logo_img = tk.PhotoImage(file=str(path))
-                target_h = 70
-                target_w = 320
+                target_h = logo_frame.winfo_reqheight() or 80
+                target_w = logo_frame.winfo_reqwidth() or 340
                 scale_h = math.ceil(logo_img.height() / target_h)
                 scale_w = math.ceil(logo_img.width() / target_w)
                 scale = max(1, scale_h, scale_w)
@@ -546,7 +607,7 @@ class UpdaterGUI:
                     self.logo_label.configure(image=self.logo_image)
 
                 # Place logo and overlay tagline within the logo frame
-                self.logo_label.place(relx=1.0, x=0, y=0, anchor=tk.NE)
+                self.logo_label.place(relx=1.0, x=0, y=-5, anchor=tk.NE)
                 subtitle_right.place(relx=1.0, x=-6, y=52, anchor=tk.NE)
                 subtitle_right.lift()
             except Exception:
@@ -555,10 +616,11 @@ class UpdaterGUI:
         # Async fetch logo to avoid blocking UI
         def fetch_logo():
             try:
+                _ensure_work_dir()
                 req = Request(LOGO_URL, headers={'User-Agent': 'Mozilla/5.0'})
                 with self.urlopen_insecure(req, timeout=10) as response:
                     logo_bytes = response.read()
-                tmp_logo = Path(tempfile.gettempdir()) / "rfsuite_logo.png"
+                tmp_logo = WORK_DIR / "rfsuite_logo.png"
                 with open(tmp_logo, "wb") as f:
                     f.write(logo_bytes)
                 self.root.after(0, lambda: set_logo_image(tmp_logo))
@@ -616,25 +678,6 @@ class UpdaterGUI:
         )
         locale_combo.pack(side=tk.LEFT, padx=5)
 
-        # Updater update notification (hidden by default)
-        self.update_notice = ttk.Frame(self.root, padding="8")
-        self.update_notice.pack(fill=tk.X, padx=10, pady=(0, 5))
-        self.update_notice.pack_forget()
-
-        self.update_notice_label = ttk.Label(
-            self.update_notice,
-            text="",
-            font=("Arial", 9)
-        )
-        self.update_notice_label.pack(side=tk.LEFT)
-
-        self.update_notice_button = ttk.Button(
-            self.update_notice,
-            text="Open Download Page",
-            command=lambda: webbrowser.open(UPDATER_INFO_URL)
-        )
-        self.update_notice_button.pack(side=tk.RIGHT)
-        
         # Status frame
         status_frame = ttk.LabelFrame(self.root, text="Status", padding="10")
         status_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -646,14 +689,6 @@ class UpdaterGUI:
         )
         self.status_label.pack()
         
-        # Progress bar
-        self.progress = ttk.Progressbar(
-            status_frame,
-            mode='indeterminate',
-            length=300
-        )
-        self.progress.pack(pady=5)
-        
         # Progress label (shows file count during operations)
         self.progress_label = ttk.Label(
             status_frame,
@@ -661,6 +696,35 @@ class UpdaterGUI:
             font=("Arial", 8)
         )
         self.progress_label.pack()
+        
+        # Segmented progress bar with labels
+        self.step_names = [
+            "Find",
+            "Connect",
+            "Download",
+            "Extract",
+            "Translate",
+            "Remove",
+            "Copy",
+            "Audio",
+            "Cleanup",
+        ]
+        self.segment_bar = tk.Canvas(
+            status_frame,
+            height=36,
+            highlightthickness=1,
+            highlightbackground="#bdbdbd",
+            bg="#f2f2f2"
+        )
+        self.segment_bar.pack(fill=tk.X, padx=8, pady=5)
+        self.segment_items = []
+        self.segment_labels = []
+        self.segment_states = [False for _ in self.step_names]
+        self.segment_active_index = None
+        self.segment_pulse_on = False
+        self.segment_pulse_after_id = None
+        self._draw_segment_bar()
+        self.root.bind("<Configure>", lambda _e: self._draw_segment_bar())
         
         # Log frame
         log_frame = ttk.LabelFrame(self.root, text="Log", padding="10")
@@ -693,6 +757,13 @@ class UpdaterGUI:
             state=tk.DISABLED
         )
         self.cancel_button.pack(side=tk.LEFT, padx=5)
+
+        self.save_log_button = ttk.Button(
+            button_frame,
+            text="Save Log",
+            command=self.save_log
+        )
+        self.save_log_button.pack(side=tk.LEFT, padx=5)
         
         ttk.Button(
             button_frame,
@@ -701,11 +772,10 @@ class UpdaterGUI:
         ).pack(side=tk.RIGHT, padx=5)
         
         # Info frame
-        info_frame = ttk.Frame(self.root, padding="10")
-        info_frame.pack(fill=tk.X)
+        info_frame = ttk.LabelFrame(self.root, text="Instructions", padding="10")
+        info_frame.pack(fill=tk.X, padx=10, pady=5)
         
         info_text = (
-            "Instructions:\n"
             "1. Select the version you want to install (Release recommended)\n"
             "2. Connect your Ethos radio via USB\n"
             "3. Click 'Start Update' to begin\n"
@@ -718,6 +788,24 @@ class UpdaterGUI:
             font=("Arial", 8),
             justify=tk.LEFT
         ).pack(anchor=tk.W)
+
+        # Updater update notification (always visible)
+        self.update_notice = ttk.Frame(self.root, padding="8")
+        self.update_notice.pack(fill=tk.X, padx=10, pady=(0, 5))
+        
+        self.update_notice_label = ttk.Label(
+            self.update_notice,
+            text=f"Checking for updates... (Current: {UPDATER_VERSION})",
+            font=("Arial", 9)
+        )
+        self.update_notice_label.pack(side=tk.LEFT)
+        
+        self.update_notice_button = ttk.Button(
+            self.update_notice,
+            text="Open Download Page",
+            command=lambda: webbrowser.open(UPDATER_INFO_URL)
+        )
+        self.update_notice_button.pack(side=tk.RIGHT)
 
         # Async check for updater updates
         threading.Thread(target=self.check_updater_update, daemon=True).start()
@@ -756,16 +844,47 @@ class UpdaterGUI:
                 data = json.loads(response.read().decode())
             remote_version = data.get("version", "").strip()
             remote_url = data.get("url") or UPDATER_INFO_URL
-            if remote_version and self._is_newer_version(UPDATER_VERSION, remote_version):
-                msg = f"Updater {remote_version} is available (current {UPDATER_VERSION})."
+            if remote_version:
+                if self._is_newer_version(UPDATER_VERSION, remote_version):
+                    msg = f"New version available. Current: {UPDATER_VERSION} | Latest: {remote_version}"
+                else:
+                    msg = f"Updater is up to date. Current: {UPDATER_VERSION} | Latest: {remote_version}"
                 self.root.after(0, lambda: self.show_update_notice(msg, remote_url))
+            else:
+                msg = f"Updater version check failed. Current: {UPDATER_VERSION} | Latest: unknown"
+                self.root.after(0, lambda: self.show_update_notice(msg, UPDATER_INFO_URL))
         except Exception:
-            pass
+            msg = f"Updater version check failed. Current: {UPDATER_VERSION} | Latest: unknown"
+            self.root.after(0, lambda: self.show_update_notice(msg, UPDATER_INFO_URL))
 
     def show_update_notice(self, message, url):
         self.update_notice_label.config(text=message)
         self.update_notice_button.config(command=lambda: webbrowser.open(url))
         self.update_notice.pack(fill=tk.X, padx=10, pady=(0, 5))
+
+    def save_log(self):
+        """Save the current log to a user-selected file."""
+        try:
+            log_text = self.log_text.get("1.0", tk.END)
+        except Exception:
+            log_text = ""
+        if not log_text.strip():
+            messagebox.showinfo("Save Log", "There is no log content to save yet.")
+            return
+        filename = filedialog.asksaveasfilename(
+            title="Save Updater Log",
+            defaultextension=".txt",
+            initialfile="rfsuite_updater_log.txt",
+            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")]
+        )
+        if not filename:
+            return
+        try:
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(log_text)
+            messagebox.showinfo("Save Log", f"Log saved to:\n{filename}")
+        except Exception as e:
+            messagebox.showerror("Save Log", f"Failed to save log:\n{e}")
     
     def set_status(self, message):
         """Update the status label."""
@@ -773,19 +892,100 @@ class UpdaterGUI:
         self.root.update_idletasks()
     
     def set_progress_mode(self, mode='indeterminate', maximum=100):
-        """Set progress bar mode."""
-        self.progress.stop()
-        self.progress.config(mode=mode, maximum=maximum, value=0)
-        if mode == 'indeterminate':
-            self.progress.start()
-            self.progress_label.config(text="")
+        """No-op (progress bar removed)."""
         self.root.update_idletasks()
     
     def update_progress(self, value, text=""):
-        """Update progress bar value and label."""
-        self.progress.config(value=value)
+        """Update progress label."""
         self.progress_label.config(text=text)
         self.root.update_idletasks()
+
+    def _draw_segment_bar(self):
+        if not hasattr(self, "segment_bar"):
+            return
+        self.segment_bar.delete("all")
+        self.segment_items = []
+        self.segment_labels = []
+        width = max(1, self.segment_bar.winfo_width())
+        height = int(self.segment_bar["height"])
+        padding = 6
+        gap = 4
+        label_h = 14
+        bar_h = height - padding * 2 - label_h
+        bar_y1 = padding
+        bar_y2 = padding + bar_h
+        total_segments = len(self.step_names)
+        seg_w = max(1, (width - padding * 2 - gap * (total_segments - 1)) // total_segments)
+        x = padding
+        for i, name in enumerate(self.step_names):
+            if self.segment_states[i]:
+                fill = "#1db954"
+            elif self.segment_active_index == i:
+                fill = "#f4a259" if self.segment_pulse_on else "#d9d9d9"
+            else:
+                fill = "#d9d9d9"
+            rect = self.segment_bar.create_rectangle(
+                x,
+                bar_y1,
+                x + seg_w,
+                bar_y2,
+                fill=fill,
+                outline="#bdbdbd"
+            )
+            label = self.segment_bar.create_text(
+                x + seg_w / 2,
+                bar_y2 + label_h / 2,
+                text=name,
+                fill="#333333",
+                font=("Arial", 8)
+            )
+            self.segment_items.append(rect)
+            self.segment_labels.append(label)
+            x += seg_w + gap
+
+    def reset_steps(self):
+        self.segment_states = [False for _ in self.step_names]
+        self._stop_segment_pulse()
+        self._draw_segment_bar()
+
+    def mark_step_done(self, step_name):
+        if step_name not in self.step_names:
+            return
+        idx = self.step_names.index(step_name)
+        self.segment_states[idx] = True
+        if self.segment_active_index == idx:
+            self._stop_segment_pulse()
+        self._draw_segment_bar()
+
+    def set_current_step(self, step_name):
+        if step_name in self.step_names:
+            self.segment_active_index = self.step_names.index(step_name)
+            self._start_segment_pulse()
+        self.update_progress(0, f"Current step: {step_name}")
+
+    def _start_segment_pulse(self):
+        if self.segment_pulse_after_id is not None:
+            return
+        self.segment_pulse_on = False
+        self._pulse_active_segment()
+
+    def _stop_segment_pulse(self):
+        if self.segment_pulse_after_id is not None:
+            try:
+                self.root.after_cancel(self.segment_pulse_after_id)
+            except Exception:
+                pass
+        self.segment_pulse_after_id = None
+        self.segment_pulse_on = False
+        self.segment_active_index = None
+
+    def _pulse_active_segment(self):
+        if self.segment_active_index is None:
+            self.segment_pulse_after_id = None
+            return
+        self.segment_pulse_on = not self.segment_pulse_on
+        self._draw_segment_bar()
+        self.segment_pulse_after_id = self.root.after(500, self._pulse_active_segment)
     
     def count_files(self, directory):
         """Count total files in a directory recursively."""
@@ -835,14 +1035,11 @@ class UpdaterGUI:
                 pass
         return True
     
-    def copy_tree_with_progress(self, src, dst):
+    def copy_tree_with_progress(self, src, dst, use_phase=False):
         """Copy directory tree with progress updates."""
         # Count total files
         total_files = self.count_files(src)
         self.log(f"  Total files to copy: {total_files}")
-        
-        # Switch to determinate progress
-        self.set_progress_mode('determinate', maximum=total_files)
         
         copied = 0
         for root, dirs, files in os.walk(src):
@@ -865,7 +1062,7 @@ class UpdaterGUI:
                     time.sleep(COPY_SETTLE_SECONDS)
                     
                     # Update progress
-                    percent = (copied / total_files) * 100
+                    percent = (copied / total_files) * 100 if total_files else 100
                     self.update_progress(copied, f"Copied {copied}/{total_files} files ({percent:.1f}%)")
                     
                     # Log every 10th file or last file
@@ -883,7 +1080,7 @@ class UpdaterGUI:
         
         return True
     
-    def remove_tree_with_progress(self, directory):
+    def remove_tree_with_progress(self, directory, use_phase=False):
         """Remove directory tree with progress updates."""
         if not os.path.exists(directory):
             return True
@@ -891,9 +1088,6 @@ class UpdaterGUI:
         # Count total files
         total_files = self.count_files(directory)
         self.log(f"  Total files to delete: {total_files}")
-        
-        # Switch to determinate progress
-        self.set_progress_mode('determinate', maximum=total_files)
         
         deleted = 0
         files_to_delete = []
@@ -926,7 +1120,7 @@ class UpdaterGUI:
                 time.sleep(COPY_SETTLE_SECONDS)
                 
                 # Update progress
-                percent = (deleted / total_files) * 100
+                percent = (deleted / total_files) * 100 if total_files else 100
                 self.update_progress(deleted, f"Deleted {deleted}/{total_files} files ({percent:.1f}%)")
                 
                 # Log every 10th file or last file
@@ -1073,26 +1267,63 @@ class UpdaterGUI:
         self.log("Using git sparse checkout for master...")
         os.makedirs(dest_dir, exist_ok=True)
 
-        def run_git(args, timeout=60):
+        def run_git(args, timeout=60, progress_cb=None):
             cmd = ["git"] + args
             self.log(f"  Git: {' '.join(cmd)}")
-            result = subprocess.run(
-                cmd,
-                cwd=dest_dir,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-            )
-            if result.stdout:
-                for line in result.stdout.strip().splitlines():
-                    if line.strip():
-                        self.log(f"    [git] {line}")
-            if result.stderr:
-                for line in result.stderr.strip().splitlines():
-                    if line.strip():
-                        self.log(f"    [git] {line}")
-            return result
+            if "fetch" in args and progress_cb:
+                output_lines = []
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        cwd=dest_dir,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                    )
+                    percent_re = re.compile(r"(\\d+)%")
+                    last_percent = -1
+                    for line in iter(proc.stdout.readline, ""):
+                        if not line:
+                            break
+                        output_lines.append(line)
+                        line_stripped = line.strip()
+                        if line_stripped:
+                            self.log(f"    [git] {line_stripped}")
+                        m = percent_re.search(line_stripped)
+                        if m:
+                            pct = int(m.group(1))
+                            if pct > last_percent:
+                                last_percent = pct
+                                progress_cb(pct)
+                    proc.wait(timeout=timeout)
+                    return subprocess.CompletedProcess(cmd, proc.returncode, stdout="".join(output_lines), stderr="")
+                except subprocess.TimeoutExpired as e:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    return subprocess.CompletedProcess(cmd, 1, stdout="".join(output_lines), stderr=str(e))
+            else:
+                result = subprocess.run(
+                    cmd,
+                    cwd=dest_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+                )
+                if result.stdout:
+                    for line in result.stdout.strip().splitlines():
+                        if line.strip():
+                            self.log(f"    [git] {line}")
+                if result.stderr:
+                    for line in result.stderr.strip().splitlines():
+                        if line.strip():
+                            self.log(f"    [git] {line}")
+                return result
 
         # Initialize repository and configure sparse checkout
         init = run_git(["init"])
@@ -1110,7 +1341,11 @@ class UpdaterGUI:
             # Grab all soundpacks to avoid missing locale audio during master installs
             f.write("bin/sound-generator/soundpack/\n")
 
-        fetch = run_git(["fetch", "--depth", "1", "--progress", "origin", "master"], timeout=180)
+        fetch = run_git(
+            ["fetch", "--depth", "1", "--progress", "origin", "master"],
+            timeout=180,
+            progress_cb=lambda pct: self.update_progress(pct, f"Fetching master... {pct}%")
+        )
         if fetch.returncode != 0:
             self.log(f"⚠ Git fetch failed: {fetch.stderr.strip()}")
             return False
@@ -1123,19 +1358,16 @@ class UpdaterGUI:
         self.log("✓ Sparse checkout completed")
         return True
 
-    def copy_sound_pack(self, repo_dir, dest_dir, locale):
+    def copy_sound_pack(self, repo_dir, dest_dir, locale, use_phase=False):
         """Copy sound pack for selected locale into destination tree."""
         locale = locale or DEFAULT_LOCALE
+        if locale == DEFAULT_LOCALE:
+            self.log(f"  Audio pack '{DEFAULT_LOCALE}' already included; skipping copy")
+            return True
         src = os.path.join(repo_dir, "bin", "sound-generator", "soundpack", locale)
         self.log(f"  Audio source: {src}")
         if not os.path.isdir(src):
-            if locale != DEFAULT_LOCALE:
-                self.log(f"⚠ Sound pack for '{locale}' not found; using {DEFAULT_LOCALE}")
-            locale = DEFAULT_LOCALE
-            src = os.path.join(repo_dir, "bin", "sound-generator", "soundpack", locale)
-            self.log(f"  Audio source fallback: {src}")
-        if not os.path.isdir(src):
-            self.log("⚠ Sound pack not found; skipping audio copy")
+            self.log(f"⚠ Sound pack for '{locale}' not found; default audio already included, skipping copy")
             return False
 
         dest = os.path.join(dest_dir, "audio", locale)
@@ -1156,11 +1388,17 @@ class UpdaterGUI:
                     dst_file = os.path.join(dst_dir, file)
                     shutil.copy2(src_file, dst_file)
                     copied += 1
+                    percent = (copied / total_files) * 100 if total_files else 100
+                    if use_phase:
+                        self.update_progress(copied, f"Audio {copied}/{total_files} files ({percent:.1f}%)")
                     self.log(f"  [AUDIO {copied}/{total_files}] {os.path.relpath(src_file, src)}")
                     time.sleep(COPY_SETTLE_SECONDS)
             self.log(f"✓ Audio pack copied: {locale}")
             return True
         except Exception as e:
+            # On Windows, hardware/device I/O errors should abort the update.
+            if sys.platform == "win32" and getattr(e, "winerror", None) is not None:
+                raise RuntimeError(f"Audio pack copy failed due to Windows device error: {e}") from e
             self.log(f"⚠ Failed to copy audio pack: {e}")
             return False
 
@@ -1255,10 +1493,12 @@ class UpdaterGUI:
         if self.is_updating:
             return
         
+        _ensure_work_dir()
         self.is_updating = True
         self.update_button.config(state=tk.DISABLED)
         self.cancel_button.config(state=tk.NORMAL)
-        self.progress.start()
+        self.reset_steps()
+        self.update_progress(0, "Starting...")
         
         self.update_thread = threading.Thread(target=self.update_process, daemon=True)
         self.update_thread.start()
@@ -1268,15 +1508,19 @@ class UpdaterGUI:
         self.is_updating = False
         self.log("Update cancelled by user")
         self.set_status("Update cancelled")
-        self.progress.stop()
+        self._stop_segment_pulse()
+        self.update_progress(0, "")
         self.update_button.config(state=tk.NORMAL)
         self.cancel_button.config(state=tk.DISABLED)
     
     def update_process(self):
         """Main update process (runs in background thread)."""
         try:
+            self.update_progress(0, "Starting...")
+
             # Step 1: Check if radio is already mounted (storage mode)
             self.set_status("Looking for radio...")
+            self.set_current_step("Find")
             self.log("Checking if radio is already in storage mode...")
             
             scripts_dir = None
@@ -1301,10 +1545,16 @@ class UpdaterGUI:
             
             if not self.is_updating:
                 return
+
+            if radio_already_mounted:
+                self.mark_step_done("Find")
+                self.set_current_step("Connect")
+                self.mark_step_done("Connect")
             
             # Step 2: If not mounted, try to connect via HID and switch mode
             if not radio_already_mounted:
                 self.set_status("Connecting to radio...")
+                self.set_current_step("Connect")
                 self.log("Radio not in storage mode, attempting to connect via USB HID...")
                 
                 try:
@@ -1318,6 +1568,8 @@ class UpdaterGUI:
                         radio_already_mounted = True
                         self.log("✓ Found scripts directory on drive")
                         self.log(f"  Found scripts directory: {scripts_dir}")
+                        self.mark_step_done("Find")
+                        self.mark_step_done("Connect")
                     else:
                         self.log("No scripts directory found on any drive.")
                     self.log("Please check the radio connection:")
@@ -1325,7 +1577,7 @@ class UpdaterGUI:
                     self.log("  - Radio is powered on")
                     self.log("  - Radio is in debug mode (will be switched automatically) or storage mode (mounted as a drive)")
                     if not radio_already_mounted:
-                        raise
+                        raise RuntimeError("Radio not detected. Please plug in your radio and try again.") from e
                 
                 if not self.is_updating:
                     return
@@ -1368,15 +1620,20 @@ class UpdaterGUI:
                     raise RuntimeError("Could not find radio scripts directory")
                 
                 self.log(f"✓ Found scripts directory: {scripts_dir}")
+                self.mark_step_done("Find")
+                self.mark_step_done("Connect")
             else:
                 # Radio was already mounted, scripts_dir is already set
                 self.log("Skipping mount wait (radio already mounted)")
+                self.mark_step_done("Find")
+                self.mark_step_done("Connect")
             
             if not self.is_updating:
                 return
             
             # Step 5: Download suite from GitHub (or git sparse checkout for master)
             self.set_status("Preparing download...")
+            self.set_current_step("Download")
 
             version_type = self.selected_version.get()
             version_name = "master" if version_type == VERSION_MASTER else ""
@@ -1387,7 +1644,8 @@ class UpdaterGUI:
             self.log(f"Version suffix for main.lua: {version_suffix}")
             is_asset = False
             
-            temp_dir = tempfile.mkdtemp(prefix="rfsuite-update-")
+            _ensure_work_dir()
+            temp_dir = tempfile.mkdtemp(prefix="rfsuite-update-", dir=str(WORK_DIR))
             # Sanitize version name for filename (replace / with -)
             safe_version_name = version_name.replace('/', '-').replace('\\', '-')
             zip_path = os.path.join(temp_dir, f"{safe_version_name}.zip")
@@ -1396,13 +1654,14 @@ class UpdaterGUI:
             repo_dir = None
             if version_type == VERSION_MASTER:
                 self.set_status("Fetching master via git...")
-                self.set_progress_mode('indeterminate')
+                self.update_progress(0, "Fetching master via git...")
                 self.log("Git sparse checkout: src/rfsuite/, .vscode/scripts/, bin/sound-generator/soundpack/")
                 repo_dir = os.path.join(temp_dir, "repo")
                 if not self.sparse_checkout_master(repo_dir, locale):
                     repo_dir = None
                 else:
                     self.log("✓ Using sparse checkout; skipping ZIP download")
+                    self.mark_step_done("Download")
 
             if repo_dir is None:
                 # Get download URL based on selected version (release/snapshot or master fallback)
@@ -1427,10 +1686,10 @@ class UpdaterGUI:
                                 downloaded = 0
 
                                 if size_known:
-                                    self.set_progress_mode('determinate', maximum=total_size)
+                                    self.update_progress(0, "Downloading...")
                                 else:
                                     total_size = 50 * 1024 * 1024  # 50MB estimate
-                                    self.set_progress_mode('determinate', maximum=total_size)
+                                    self.update_progress(0, "Downloading (size unknown)...")
                                     self.log("  Download size unknown (no content-length); estimating 50MB")
 
                                 last_log_percent = -1
@@ -1463,6 +1722,7 @@ class UpdaterGUI:
                             self.log(f"  Download failed: {e}. Retrying in {DOWNLOAD_RETRY_DELAY}s...")
                             time.sleep(DOWNLOAD_RETRY_DELAY)
                     self.log(f"✓ Downloaded {downloaded} bytes")
+                    self.mark_step_done("Download")
                 except (URLError, HTTPError) as e:
                     self.log(f"✗ Download failed: {e}")
                     raise
@@ -1474,6 +1734,7 @@ class UpdaterGUI:
             extract_dir = None
             if repo_dir is None:
                 self.set_status("Extracting archive...")
+                self.set_current_step("Extract")
                 self.log("Extracting downloaded archive...")
 
                 extract_dir = os.path.join(temp_dir, "extracted")
@@ -1482,9 +1743,12 @@ class UpdaterGUI:
                     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                         zip_ref.extractall(extract_dir)
                     self.log("✓ Archive extracted")
+                    self.mark_step_done("Extract")
                 except Exception as e:
                     self.log(f"✗ Extraction failed: {e}")
                     raise
+            else:
+                self.mark_step_done("Extract")
             
             if not self.is_updating:
                 return
@@ -1516,54 +1780,13 @@ class UpdaterGUI:
             if not self.is_updating:
                 return
             
-            # Step 8: Copy files to radio
-            dest_dir = os.path.join(scripts_dir, TARGET_NAME)
-            self.set_status("Copying files to radio...")
-            self.log("Copying new files to radio...")
-            
-            # Remove old installation
-            if os.path.isdir(dest_dir):
-                self.log("  Removing old installation...")
-                if not self.remove_tree_with_progress(dest_dir):
-                    self.log("⚠ Removal cancelled")
-                    return
-            
-            if not self.is_updating:
-                return
-            
-            # Copy new files
-            self.log("  Copying new files...")
-            if not self.copy_tree_with_progress(src_dir, dest_dir):
-                self.log("⚠ Copy cancelled")
-                return
-            
-            self.log(f"✓ Files copied to radio successfully")
-
-            self.set_status("Finalizing installation...")
-
-            # Ensure audio pack matches selected locale for master/zip builds
-            if not is_asset:
-                self.log("Updating audio pack...")
-                self.copy_sound_pack(repo_dir, dest_dir, locale)
-
-            # Update main.lua version suffix only for master (release/snapshot assets already stamped)
-            main_lua_path = os.path.join(dest_dir, "main.lua")
-            if version_type == VERSION_MASTER:
-                if os.path.isfile(main_lua_path):
-                    self.update_main_lua_version(main_lua_path, version_suffix)
-                else:
-                    self.log(f"⚠ main.lua not found at {main_lua_path} for version update")
-            
-            if not self.is_updating:
-                return
-            
-            # Step 9: Compile i18n translations (master only)
+            # Step 8: Compile i18n translations (master only) BEFORE copying to radio
             if version_type == VERSION_MASTER:
                 self.log("Preparing translation compiler (this can take a moment)...")
                 self.set_status("Compiling translations...")
                 self.log("Compiling i18n translations...")
-                self.set_progress_mode('indeterminate')
-                
+                self.set_current_step("Translate")
+
                 try:
                     # Find i18n JSON file in the extracted repo (try multiple locations)
                     i18n_json = None
@@ -1579,18 +1802,74 @@ class UpdaterGUI:
                         if os.path.isfile(base_path):
                             i18n_json = base_path
                             break
-                    
+
                     if i18n_json and os.path.isfile(i18n_json):
                         self.log(f"  Using i18n JSON: {os.path.basename(i18n_json)}")
                         self.log("  Running embedded i18n compiler...")
-                        compile_i18n_tags(i18n_json, dest_dir, self.log)
+                        compile_i18n_tags(i18n_json, src_dir, self.log)
                         self.log("OK i18n translations compiled successfully")
+                        self.mark_step_done("Translate")
                     else:
                         self.log("WARN i18n files not found, skipping translation compilation")
                         if i18n_json:
                             self.log(f"  Missing: {i18n_json}")
                 except Exception as e:
                     self.log(f"WARN i18n compilation error: {e}")
+                    self.mark_step_done("Translate")
+            else:
+                self.mark_step_done("Translate")
+
+            if not self.is_updating:
+                return
+
+            # Step 9: Copy files to radio
+            dest_dir = os.path.join(scripts_dir, TARGET_NAME)
+            self.log("Copying new files to radio...")
+            
+            # Remove old installation
+            self.set_current_step("Remove")
+            self.set_status("Removing old installation...")
+            if os.path.isdir(dest_dir):
+                self.log("  Removing old installation...")
+                if not self.remove_tree_with_progress(dest_dir, use_phase=True):
+                    self.log("⚠ Removal cancelled")
+                    return
+                self.mark_step_done("Remove")
+            else:
+                self.mark_step_done("Remove")
+            
+            if not self.is_updating:
+                return
+            
+            # Copy new files
+            self.log("  Copying new files...")
+            self.set_current_step("Copy")
+            self.set_status("Copying files to radio...")
+            if not self.copy_tree_with_progress(src_dir, dest_dir, use_phase=True):
+                self.log("⚠ Copy cancelled")
+                return
+            self.mark_step_done("Copy")
+            
+            self.log(f"✓ Files copied to radio successfully")
+
+            self.set_status("Finalizing installation...")
+
+            # Ensure audio pack matches selected locale for master/zip builds
+            self.set_current_step("Audio")
+            if not is_asset:
+                self.log("Updating audio pack...")
+                self.copy_sound_pack(repo_dir, dest_dir, locale, use_phase=True)
+                self.mark_step_done("Audio")
+            else:
+                self.mark_step_done("Audio")
+
+            # Update main.lua version suffix only for master (release/snapshot assets already stamped)
+            main_lua_path = os.path.join(dest_dir, "main.lua")
+            if version_type == VERSION_MASTER:
+                if os.path.isfile(main_lua_path):
+                    self.update_main_lua_version(main_lua_path, version_suffix)
+                else:
+                    self.log(f"⚠ main.lua not found at {main_lua_path} for version update")
             
             if not self.is_updating:
                 return
@@ -1599,16 +1878,18 @@ class UpdaterGUI:
             self.log("Final cleanup...")
             self.set_status("Cleaning up...")
             self.log("Cleaning up temporary files...")
-            self.set_progress_mode('indeterminate')
+            self.set_current_step("Cleanup")
             try:
                 shutil.rmtree(temp_dir)
             except Exception:
                 pass
+            _cleanup_work_dir()
+            self.mark_step_done("Cleanup")
             
             # Success!
             self.set_status("Update completed successfully!")
-            self.progress.stop()
             self.progress_label.config(text="")
+            self._stop_segment_pulse()
             self.log("")
             self.log("=" * 50)
             self.log("✓ UPDATE COMPLETED SUCCESSFULLY!")
@@ -1643,7 +1924,7 @@ class UpdaterGUI:
         
         finally:
             self.is_updating = False
-            self.progress.stop()
+            self._stop_segment_pulse()
             self.update_button.config(state=tk.NORMAL)
             self.cancel_button.config(state=tk.DISABLED)
             
@@ -1710,15 +1991,20 @@ def main():
         with open(UPDATER_LOCK_FILE, "w", encoding="utf-8") as f:
             f.write(str(os.getpid()))
         atexit.register(lambda: os.path.exists(UPDATER_LOCK_FILE) and os.remove(UPDATER_LOCK_FILE))
+        atexit.register(_cleanup_work_dir)
 
         if not check_dependencies():
             sys.exit(1)
         
         root = tk.Tk()
         app = UpdaterGUI(root)
+        def on_close():
+            _cleanup_work_dir()
+            root.destroy()
+        root.protocol("WM_DELETE_WINDOW", on_close)
         root.mainloop()
     except Exception:
-        error_log = Path(__file__).resolve().parent / "updater_error.log"
+        error_log = WORK_DIR / "updater_error.log"
         with open(error_log, "w", encoding="utf-8") as f:
             f.write(traceback.format_exc())
         try:

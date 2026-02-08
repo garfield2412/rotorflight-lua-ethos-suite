@@ -4,6 +4,12 @@
 ]] --
 
 local rfsuite = require("rfsuite")
+local lcd = lcd
+local app = rfsuite.app
+local tasks = rfsuite.tasks
+local prefs = rfsuite.preferences
+local rfutils = rfsuite.utils
+local session = rfsuite.session
 
 local line = {}
 local fields = {}
@@ -13,6 +19,23 @@ local startTestTime = os.clock()
 local startTestLength = 0
 
 local testLoader = nil
+local testLoaderBaseMessage
+local testLoaderMspStatusLast
+local MSP_DEBUG_PLACEHOLDER = "MSP Waiting"
+
+local function openProgressDialog(...)
+    if rfutils.ethosVersionAtLeast({1, 7, 0}) and form.openWaitDialog then
+        local arg1 = select(1, ...)
+        if type(arg1) == "table" then
+            arg1.progress = true
+            return form.openWaitDialog(arg1)
+        end
+        local title = arg1
+        local message = select(2, ...)
+        return form.openWaitDialog({title = title, message = message, progress = true})
+    end
+    return form.openProgressDialog(...)
+end
 
 local mspQueryStartTime
 local mspQueryTimeCount = 0
@@ -36,22 +59,29 @@ resetStats()
 local RateLimit = os.clock()
 local Rate = 0.25
 
+local function updateTestLoaderMessage()
+    if not testLoader or not testLoaderBaseMessage then return end
+    if app and app.ui and app.ui.updateProgressDialogMessage then
+        app.ui.updateProgressDialogMessage()
+    end
+end
+
 local function getMSPBattery()
-    local API = rfsuite.tasks.msp.api.load("BATTERY_CONFIG")
+    local API = tasks.msp.api.load("BATTERY_CONFIG")
     API.setCompleteHandler(function(self, buf) doNextMsp = true end)
     API.setUUID("a3f9c2b4-5d7e-4e8a-9c3b-2f6d8e7a1b2d")
     API.read()
 end
 
 local function getMSPGovernor()
-    local API = rfsuite.tasks.msp.api.load("GOVERNOR_CONFIG")
+    local API = tasks.msp.api.load("GOVERNOR_CONFIG")
     API.setCompleteHandler(function(self, buf) doNextMsp = true end)
     API.setUUID("e2a1c5b3-7f4a-4c8e-9d2a-3b6f8e2d9a1c")
     API.read()
 end
 
 local function getMSPMixer()
-    local API = rfsuite.tasks.msp.api.load("MIXER_CONFIG")
+    local API = tasks.msp.api.load("MIXER_CONFIG")
     API.setCompleteHandler(function(self, buf) doNextMsp = true end)
     API.setUUID("fbccd634-c9b7-4b48-8c02-08ef560dc515")
     API.read()
@@ -70,7 +100,7 @@ local function getMSP()
         getMSPCount = 0
     end
 
-    local avgQueryTime = rfsuite.utils.round(mspQueryTimeCount / mspSpeedTestStats['total'], 2) .. "s"
+    local avgQueryTime = rfutils.round(mspQueryTimeCount / mspSpeedTestStats['total'], 2) .. "s"
 
 end
 
@@ -95,7 +125,7 @@ local function updateStats()
         fields['success']:value(tostring(mspSpeedTestStats['success']))
     end
 
-    local avgQueryTime = rfsuite.utils.round(mspQueryTimeCount / mspSpeedTestStats['total'], 2) .. "s"
+    local avgQueryTime = rfutils.round(mspQueryTimeCount / mspSpeedTestStats['total'], 2) .. "s"
     fields['time']:value(tostring(avgQueryTime))
 
 end
@@ -104,17 +134,20 @@ local function startTest(duration)
     startTestLength = duration
     startTestTime = os.clock()
 
-    testLoader = form.openProgressDialog({
+    testLoader = openProgressDialog({
         title = "@i18n(app.modules.msp_speed.testing)@",
         message = "@i18n(app.modules.msp_speed.testing_performance)@",
         close = function()
             updateStats()
             testLoader = nil
+            testLoaderBaseMessage = nil
+            testLoaderMspStatusLast = nil
+            app.ui.clearProgressDialog(testLoader)
         end,
         wakeup = function()
             local now = os.clock()
 
-            if rfsuite.session.telemetryState == false and startTest == true and system:getVersion().simulation ~= true then
+            if session.telemetryState == false and startTest == true and system:getVersion().simulation ~= true then
                 if testLoader then
                     testLoader:close()
                     testLoader = nil
@@ -122,19 +155,21 @@ local function startTest(duration)
             end
 
             if formLoaded == true then
-                rfsuite.app.triggers.closeProgressLoader = true
+                app.triggers.closeProgressLoader = true
                 formLoaded = false
             end
 
             testLoader:value((now - startTestTime) * 100 / startTestLength)
+            updateTestLoaderMessage()
 
             if (now - startTestLength) > startTestTime then
                 testLoader:close()
+                app.ui.clearProgressDialog(testLoader)
                 testLoader = nil
                 updateStats()
             end
 
-            if rfsuite.tasks.msp.mspQueue:isProcessed() and ((now - RateLimit) >= Rate) then
+            if tasks.msp.mspQueue:isProcessed() and ((now - RateLimit) >= Rate) then
                 RateLimit = now
                 mspSpeedTestStats['total'] = mspSpeedTestStats['total'] + 1
                 mspQueryStartTime = os.clock()
@@ -148,6 +183,10 @@ local function startTest(duration)
     })
 
     testLoader:value(0)
+    testLoaderBaseMessage = "@i18n(app.modules.msp_speed.testing_performance)@"
+    testLoaderMspStatusLast = nil
+    updateTestLoaderMessage()
+    app.ui.registerProgressDialog(testLoader, testLoaderBaseMessage)
 
     resetStats()
 
@@ -186,14 +225,14 @@ local function openSpeedTestDialog()
 end
 
 local function openPage(pidx, title, script)
-    rfsuite.app.lastIdx = pidx
-    rfsuite.app.lastTitle = title
-    rfsuite.app.lastScript = script
-    rfsuite.app.triggers.closeProgressLoader = true
+    app.lastIdx = pidx
+    app.lastTitle = title
+    app.lastScript = script
+    app.triggers.closeProgressLoader = true
 
     local w, h = lcd.getWindowSize()
 
-    local y = rfsuite.app.radio.linePaddingTop
+    local y = app.radio.linePaddingTop
 
     form.clear()
 
@@ -203,15 +242,15 @@ local function openPage(pidx, title, script)
     local buttonWs = buttonW - (buttonW * 20) / 100
     local x = w - 10
 
-    rfsuite.app.formNavigationFields['menu'] = form.addButton(line, {x = x - 5 - buttonW - buttonWs, y = rfsuite.app.radio.linePaddingTop, w = buttonW, h = rfsuite.app.radio.navbuttonHeight}, {text = "@i18n(app.navigation_menu)@", icon = nil, options = FONT_S, press = function() rfsuite.app.ui.openPage(pageIdx, "@i18n(app.modules.diagnostics.name)@", "diagnostics/diagnostics.lua") end})
-    rfsuite.app.formNavigationFields['menu']:focus()
+    app.formNavigationFields['menu'] = form.addButton(line, {x = x - 5 - buttonW - buttonWs, y = app.radio.linePaddingTop, w = buttonW, h = app.radio.navbuttonHeight}, {text = "@i18n(app.navigation_menu)@", icon = nil, options = FONT_S, press = function() app.ui.openPage(pageIdx, "@i18n(app.modules.diagnostics.name)@", "diagnostics/diagnostics.lua") end})
+    app.formNavigationFields['menu']:focus()
 
-    rfsuite.app.formNavigationFields['tool'] = form.addButton(line, {x = x - buttonWs, y = rfsuite.app.radio.linePaddingTop, w = buttonWs, h = rfsuite.app.radio.navbuttonHeight}, {text = "*", icon = nil, options = FONT_S, press = function() openSpeedTestDialog() end})
+    app.formNavigationFields['tool'] = form.addButton(line, {x = x - buttonWs, y = app.radio.linePaddingTop, w = buttonWs, h = app.radio.navbuttonHeight}, {text = "*", icon = nil, options = FONT_S, press = function() openSpeedTestDialog() end})
 
-    local posText = {x = x - 5 - buttonW - buttonWs - 5 - buttonWs, y = rfsuite.app.radio.linePaddingTop, w = 200, h = rfsuite.app.radio.navbuttonHeight}
+    local posText = {x = x - 5 - buttonW - buttonWs - 5 - buttonWs, y = app.radio.linePaddingTop, w = 200, h = app.radio.navbuttonHeight}
 
     line['rf'] = form.addLine("@i18n(app.modules.msp_speed.rf_protocol)@")
-    fields['rf'] = form.addStaticText(line['rf'], posText, string.upper(rfsuite.tasks.msp.protocol.mspProtocol))
+    fields['rf'] = form.addStaticText(line['rf'], posText, string.upper(tasks.msp.protocol.mspProtocol))
 
     line['runtime'] = form.addLine("@i18n(app.modules.msp_speed.test_length)@")
     fields['runtime'] = form.addStaticText(line['runtime'], posText, "-")
@@ -275,7 +314,7 @@ end
 local function event(widget, category, value, x, y)
 
     if category == EVT_CLOSE and value == 0 or value == 35 then
-        rfsuite.app.ui.openPage(pageIdx, "@i18n(app.modules.diagnostics.name)@", "diagnostics/diagnostics.lua")
+        app.ui.openPage(pageIdx, "@i18n(app.modules.diagnostics.name)@", "diagnostics/diagnostics.lua")
         return true
     end
 end

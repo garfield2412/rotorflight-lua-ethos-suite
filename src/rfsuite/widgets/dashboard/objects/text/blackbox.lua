@@ -35,12 +35,32 @@
 
 local rfsuite = require("rfsuite")
 
+local format = string.format
+local rep = string.rep
+
 local render = {}
 
 local utils = rfsuite.widgets.dashboard.utils
 local getParam = utils.getParam
 local resolveThemeColor = utils.resolveThemeColor
 local eraseDataflashGo = false
+local progressBaseMessage
+local progressMspStatusLast
+local MSP_DEBUG_PLACEHOLDER = "MSP Waiting"
+
+local function openProgressDialog(...)
+    if rfsuite.utils.ethosVersionAtLeast({1, 7, 0}) and form.openWaitDialog then
+        local arg1 = select(1, ...)
+        if type(arg1) == "table" then
+            arg1.progress = true
+            return form.openWaitDialog(arg1)
+        end
+        local title = arg1
+        local message = select(2, ...)
+        return form.openWaitDialog({title = title, message = message, progress = true})
+    end
+    return form.openProgressDialog(...)
+end
 
 function render.invalidate(box) box._cfg = nil end
 
@@ -73,13 +93,34 @@ end
 
 local function eraseDataflash()
     isErase = true
-    progress = form.openProgressDialog("@i18n(app.msg_saving)@", "@i18n(app.msg_saving_to_fbl)@")
+    progress = openProgressDialog("@i18n(app.msg_saving)@", "@i18n(app.msg_saving_to_fbl)@")
     progress:value(0)
     progress:closeAllowed(false)
     progressCounter = 0
+    progressBaseMessage = "@i18n(app.msg_saving_to_fbl)@"
+    progressMspStatusLast = nil
+    rfsuite.app.ui.registerProgressDialog(progress, progressBaseMessage)
 
     local message = {command = 72, processReply = function() isErase = false end}
     rfsuite.tasks.msp.mspQueue:add(message)
+end
+
+local function updateProgressMessage()
+    if not progress or not progressBaseMessage then return end
+    local showMsp = rfsuite.preferences and rfsuite.preferences.general and rfsuite.preferences.general.mspstatusdialog
+    local mspStatus = (showMsp and rfsuite.session and rfsuite.session.mspStatusMessage) or nil
+    if showMsp then
+        local msg = mspStatus or MSP_DEBUG_PLACEHOLDER
+        if msg ~= progressMspStatusLast then
+            progress:message(msg)
+            progressMspStatusLast = msg
+        end
+    else
+        if progressMspStatusLast ~= nil then
+            progress:message(progressBaseMessage)
+            progressMspStatusLast = nil
+        end
+    end
 end
 
 local function ensureCfg(box)
@@ -137,13 +178,13 @@ function render.wakeup(box)
 
         local transformedUsed = utils.transformValue(usedMB, box)
         local transformedTotal = utils.transformValue(totalMB, box)
-        displayValue = string.format("%." .. cfg.decimals .. "f/%." .. cfg.decimals .. "f %s", transformedUsed, transformedTotal, "@i18n(app.modules.fblstatus.megabyte)@")
+        displayValue = format("%." .. cfg.decimals .. "f/%." .. cfg.decimals .. "f %s", transformedUsed, transformedTotal, "@i18n(app.modules.fblstatus.megabyte)@")
     else
         if totalSize == nil and usedSize == nil then
 
             local maxDots = 3
             box._dotCount = ((box._dotCount or 0) + 1) % (maxDots + 1)
-            displayValue = string.rep(".", box._dotCount)
+            displayValue = rep(".", box._dotCount)
             if displayValue == "" then displayValue = "." end
         else
             displayValue = cfg.novalue
@@ -163,11 +204,15 @@ function render.wakeup(box)
     end
 
     if progress then
+        updateProgressMessage()
         progressCounter = (progressCounter or 0) + 20
         progress:value(progressCounter)
         if progressCounter >= 100 then
             progress:close()
+            rfsuite.app.ui.clearProgressDialog(progress)
             progress = nil
+            progressBaseMessage = nil
+            progressMspStatusLast = nil
         end
     end
 

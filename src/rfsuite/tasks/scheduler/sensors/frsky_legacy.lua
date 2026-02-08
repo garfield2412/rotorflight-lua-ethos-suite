@@ -7,9 +7,14 @@ local rfsuite = require("rfsuite")
 
 local arg = {...}
 local config = arg[1]
+local os_clock = os.clock
 local cacheExpireTime = 10
-local lastCacheFlushTime = os.clock()
+local lastCacheFlushTime = os_clock()
 local sensorTlm
+local POP_BUDGET_SECONDS = (config and config.frskyLegacyPopBudgetSeconds) or 0.004
+
+local system_getSource = system.getSource
+local model_createSensor = model.createSensor
 
 local frsky_legacy = {}
 
@@ -65,11 +70,11 @@ local function createSensor(physId, primId, appId, frameValue)
 
         if frsky_legacy.createSensorCache[appId] == nil then
 
-            frsky_legacy.createSensorCache[appId] = system.getSource({category = CATEGORY_TELEMETRY_SENSOR, appId = appId})
+            frsky_legacy.createSensorCache[appId] = system_getSource({category = CATEGORY_TELEMETRY_SENSOR, appId = appId})
 
             if frsky_legacy.createSensorCache[appId] == nil then
 
-                frsky_legacy.createSensorCache[appId] = model.createSensor()
+                frsky_legacy.createSensorCache[appId] = model_createSensor()
                 frsky_legacy.createSensorCache[appId]:name(v.name)
                 frsky_legacy.createSensorCache[appId]:appId(appId)
                 frsky_legacy.createSensorCache[appId]:physId(physId)
@@ -97,7 +102,7 @@ local function dropSensor(physId, primId, appId, frameValue)
         local v = dropSensorList[appId]
 
         if frsky_legacy.dropSensorCache[appId] == nil then
-            frsky_legacy.dropSensorCache[appId] = system.getSource({category = CATEGORY_TELEMETRY_SENSOR, appId = appId})
+            frsky_legacy.dropSensorCache[appId] = system_getSource({category = CATEGORY_TELEMETRY_SENSOR, appId = appId})
 
             if frsky_legacy.dropSensorCache[appId] ~= nil then frsky_legacy.dropSensorCache[appId]:drop() end
 
@@ -113,7 +118,7 @@ local function renameSensor(physId, primId, appId, frameValue)
         local v = renameSensorList[appId]
 
         if frsky_legacy.renameSensorCache[appId] == nil then
-            frsky_legacy.renameSensorCache[appId] = system.getSource({category = CATEGORY_TELEMETRY_SENSOR, appId = appId})
+            frsky_legacy.renameSensorCache[appId] = system_getSource({category = CATEGORY_TELEMETRY_SENSOR, appId = appId})
 
             if frsky_legacy.renameSensorCache[appId] ~= nil then if frsky_legacy.renameSensorCache[appId]:name() == v.onlyifname then frsky_legacy.renameSensorCache[appId]:name(v.name) end end
 
@@ -136,11 +141,17 @@ local function telemetryPop()
 
     if frame == nil then return false end
 
-    if not frame.physId or not frame.primId then return end
+    local physId = frame:physId()
+    local primId = frame:primId()
 
-    createSensor(frame:physId(), frame:primId(), frame:appId(), frame:value())
-    dropSensor(frame:physId(), frame:primId(), frame:appId(), frame:value())
-    renameSensor(frame:physId(), frame:primId(), frame:appId(), frame:value())
+    if not physId or not primId then return end
+
+    local appId = frame:appId()
+    local value = frame:value()
+
+    createSensor(physId, primId, appId, value)
+    dropSensor(physId, primId, appId, value)
+    renameSensor(physId, primId, appId, value)
     return true
 end
 
@@ -152,9 +163,9 @@ function frsky_legacy.wakeup()
         frsky_legacy.dropSensorCache = {}
     end
 
-    if os.clock() - lastCacheFlushTime >= cacheExpireTime then
+    if os_clock() - lastCacheFlushTime >= cacheExpireTime then
         clearCaches()
-        lastCacheFlushTime = os.clock()
+        lastCacheFlushTime = os_clock()
     end
 
     if not rfsuite.session.telemetryState or not rfsuite.session.telemetrySensor then clearCaches() end
@@ -167,7 +178,10 @@ function frsky_legacy.wakeup()
     end
 
     if rfsuite.tasks and rfsuite.tasks.telemetry and rfsuite.session.telemetryState and rfsuite.session.telemetrySensor then
-         while telemetryPop() do end
+        local deadline = (POP_BUDGET_SECONDS and POP_BUDGET_SECONDS > 0) and (os_clock() + POP_BUDGET_SECONDS) or nil
+        while telemetryPop() do
+            if deadline and os_clock() >= deadline then break end
+        end
     end
 
 end

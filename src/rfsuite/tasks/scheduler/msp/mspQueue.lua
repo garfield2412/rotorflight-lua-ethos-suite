@@ -10,11 +10,20 @@ local rfsuite = require("rfsuite")
 local os_clock = os.clock
 local utils = rfsuite.utils
 local math_max = math.max
+local type = type
+local pairs = pairs
+local setmetatable = setmetatable
+local getmetatable = getmetatable
+local tostring = tostring
+local pcall = pcall
+
 local DEFAULT_RETRY_BACKOFF_SECONDS = 1
 local MspQueueController = {}
 MspQueueController.__index = MspQueueController
 
 local lastQueueCount = 0 -- for queue size logging
+
+local MSP_BUSY_TIMEOUT = 2.5
 
 -- Queue primitives
 local function newQueue() return {first = 1, last = 0, data = {}} end
@@ -57,6 +66,42 @@ end
 
 -- Logging toggles
 local function LOG_ENABLED_MSP() return rfsuite and rfsuite.preferences and rfsuite.preferences.developer and rfsuite.preferences.developer.logmsp end
+
+-- Lightweight status updates for UI progress loaders.
+local function setMspStatus(message)
+    local session = rfsuite.session
+    if not session then return end
+    if session.mspStatusMessage ~= message then
+        session.mspStatusMessage = message
+        session.mspStatusUpdatedAt = os_clock()
+        if message then
+            session.mspStatusLast = message
+            session.mspStatusClearAt = nil
+        end
+        local app = rfsuite.app
+        if app and app.ui and app.ui.updateProgressDialogMessage then
+            app.ui.updateProgressDialogMessage(message)
+        end
+        if app and app.ui and app.ui.applyMspStatusToActiveDialogs then
+            app.ui.applyMspStatusToActiveDialogs(message)
+        end
+    end
+end
+
+local function formatMspStatus(msg, suffix)
+    if not msg then return nil end
+    local rw
+    if msg.isWrite ~= nil then
+        rw = msg.isWrite and "Write" or "Read"
+    else
+        rw = (msg.payload and #msg.payload > 0) and "Write" or "Read"
+    end
+    local cmd = msg.command
+    local head = "MSP " .. rw
+    if cmd ~= nil then head = head .. " " .. tostring(cmd) end
+    if suffix and suffix ~= "" then return head .. " " .. suffix end
+    return head
+end
 
 
 -- Drain duplicate/late replies for the same command for a brief window after success.
@@ -137,9 +182,10 @@ function MspQueueController:isProcessed() return (self.currentMessage == nil) an
 function MspQueueController:processQueue()
 
     local now = os_clock()
-
-    -- MSP busy watchdog
-    local mspBusyTimeout = 2.5
+    local session = rfsuite.session
+    local mspTask = rfsuite.tasks.msp
+    local mspProtocol = mspTask and mspTask.protocol
+    local mspCommon = mspTask and mspTask.common
 
     if LOG_ENABLED_MSP_QUEUE() then
         local count = self:queueCount()
@@ -151,16 +197,19 @@ function MspQueueController:processQueue()
 
     -- Nothing to do
     if self:isProcessed() then
-        rfsuite.session.mspBusy = false
+        session.mspBusy = false
         self.mspBusyStart = nil
+        if session and session.mspStatusMessage then
+            session.mspStatusClearAt = now + 0.75
+        end
         return
     end
 
     -- Watchdog: MSP stuck too long
-    if self.mspBusyStart and (os_clock() - self.mspBusyStart) > mspBusyTimeout then
+    if self.mspBusyStart and (now - self.mspBusyStart) > MSP_BUSY_TIMEOUT then
         --utils.log("MSP busy for more than " .. mspBusyTimeout .. " seconds", "info")
         --utils.log(" - Unblocking by setting rfsuite.session.mspBusy = false", "info")
-        rfsuite.session.mspBusy = false
+        session.mspBusy = false
         self.mspBusyStart = nil
         return
     end
@@ -170,7 +219,7 @@ function MspQueueController:processQueue()
         -- Inter-message gap (after a message completes/fails)
         if self.interMessageDelay and self.interMessageDelay > 0 then
             if now < (self._nextMessageAt or 0) then
-                rfsuite.session.mspBusy = false
+                session.mspBusy = false
                 self.mspBusyStart = nil
                 return
             end
@@ -179,7 +228,7 @@ function MspQueueController:processQueue()
         -- Legacy loop throttle, but only gates starting the next message
         if self.loopInterval and self.loopInterval > 0 then
             if now < (self._nextProcessAt or 0) then
-                rfsuite.session.mspBusy = false
+                session.mspBusy = false
                 self.mspBusyStart = nil
                 return
             end
@@ -193,14 +242,14 @@ function MspQueueController:processQueue()
     end
 
     -- We are now genuinely active (either working a current message or about to send one)
-    rfsuite.session.mspBusy = true
+    session.mspBusy = true
     self.mspBusyStart = self.mspBusyStart or now
 
     utils.muteSensorLostWarnings() -- Avoid sensor warnings during MSP    
 
     local cmd, buf, err
     -- Minimum spacing between send attempts (protocol can override).
-    local lastTimeInterval = rfsuite.tasks.msp.protocol.mspIntervalOveride or 0.25
+    local lastTimeInterval = (mspProtocol and mspProtocol.mspIntervalOveride) or 0.25
     if lastTimeInterval == nil then lastTimeInterval = 1 end
 
     if not system.getVersion().simulation then
@@ -216,7 +265,7 @@ function MspQueueController:processQueue()
             local canSendByBackoff = (self.retryCount == 0) or ((self.lastTimeCommandSent and (now2 - self.lastTimeCommandSent) >= backoff) or false)
 
             if canSendByInterval and canSendByBackoff and (self.retryCount <= self.maxRetries) then
-                local sent = rfsuite.tasks.msp.protocol.mspWrite(self.currentMessage.command, self.currentMessage.payload or {})
+                local sent = mspProtocol.mspWrite(self.currentMessage.command, self.currentMessage.payload or {})
                 if sent then
                     self.lastTimeCommandSent = now2
                     -- Start overall timeout window on the first successful send only
@@ -224,24 +273,31 @@ function MspQueueController:processQueue()
                         self.currentMessageStartTime = now2
                     end
                     self.retryCount = self.retryCount + 1
-                    if rfsuite.app.Page and rfsuite.app.Page.mspRetry then rfsuite.app.Page.mspRetry(self) end
+                    if self.retryCount > 1 then
+                        setMspStatus(formatMspStatus(self.currentMessage, "retry " .. tostring(self.retryCount) .. "/" .. tostring(self.maxRetries + 1)))
+                    else
+                        setMspStatus(formatMspStatus(self.currentMessage, "send"))
+                    end
+                    local page = rfsuite.app and rfsuite.app.Page
+                    if page and page.mspRetry then page.mspRetry(self) end
                 end
             end
         end
 
         -- Pump TX queue.
-        rfsuite.tasks.msp.common.mspProcessTxQ()
+        if mspCommon then mspCommon.mspProcessTxQ() end
 
         -- Poll for reply
-        local ok, a, b, c = pcall(rfsuite.tasks.msp.common.mspPollReply)
+        local ok, a, b, c = pcall(mspCommon.mspPollReply)
         if ok then
             cmd, buf, err = a, b, c
         else
             if LOG_ENABLED_MSP() then
                 utils.log("mspPollReply error: " .. tostring(a), "info")
             end
+            setMspStatus("MSP poll error")
             -- back off a little so we don't hammer the same fault every frame
-            self._nextMessageAt = os_clock() + 0.05
+            self._nextMessageAt = now + 0.05
             return
         end
     else
@@ -259,18 +315,22 @@ function MspQueueController:processQueue()
     end
 
     -- Per-message timeout
-    if self.currentMessage and self.currentMessageStartTime and (os_clock() - self.currentMessageStartTime) > (self.currentMessage.timeout or self.timeout) then
+    if self.currentMessage and self.currentMessageStartTime and (now - self.currentMessageStartTime) > (self.currentMessage.timeout or self.timeout) then
         local msg = self.currentMessage
         if msg and msg.errorHandler then pcall(msg.errorHandler, msg, "timeout") end
         if msg and msg.setErrorHandler then pcall(msg.setErrorHandler, msg) end
         if LOG_ENABLED_MSP() then utils.log("Message timeout exceeded. Flushing queue.", "debug") end
+        if session then
+            session.mspTimeouts = (session.mspTimeouts or 0) + 1
+        end
+        setMspStatus(formatMspStatus(self.currentMessage, "timeout"))
         self.currentMessage = nil
         self.uuid = nil
         self.apiname = nil
         self.lastTimeCommandSent = nil
         self.currentMessageStartTime = nil
         if self.interMessageDelay and self.interMessageDelay > 0 then
-            self._nextMessageAt = os_clock() + self.interMessageDelay
+            self._nextMessageAt = now + self.interMessageDelay
         end
         return
     end
@@ -313,6 +373,11 @@ function MspQueueController:processQueue()
                 utils.logMsp(cmd, rwState, logPayload, err)
             end
         end
+        if err then
+            setMspStatus(formatMspStatus(self.currentMessage, "error flag"))
+        else
+            setMspStatus(formatMspStatus(self.currentMessage, "ok"))
+        end
 
         -- After a successful completion, briefly drain duplicate/late replies for this cmd
         if not system.getVersion().simulation then
@@ -325,23 +390,29 @@ function MspQueueController:processQueue()
         self.lastTimeCommandSent = nil
         self.currentMessageStartTime = nil
         if self.interMessageDelay and self.interMessageDelay > 0 then
-            self._nextMessageAt = os_clock() + self.interMessageDelay
+            self._nextMessageAt = now + self.interMessageDelay
         end        
-        if rfsuite.app.Page and rfsuite.app.Page.mspSuccess then rfsuite.app.Page.mspSuccess() end
+        local page = rfsuite.app and rfsuite.app.Page
+        if page and page.mspSuccess then page.mspSuccess() end
 
     -- Too many retries - reset
     elseif self.retryCount > self.maxRetries then
         local msg = self.currentMessage
         self:clear()
+        setMspStatus(formatMspStatus(msg, "max retries"))
+        if session then
+            session.mspTimeouts = (session.mspTimeouts or 0) + 1
+        end
         if msg and msg.errorHandler then pcall(msg.errorHandler, msg, "max_retries") end
         if msg and msg.setErrorHandler then pcall(msg.setErrorHandler, msg) end
-        if rfsuite.app.Page and rfsuite.app.Page.mspTimeout then rfsuite.app.Page.mspTimeout() end
+        local page = rfsuite.app and rfsuite.app.Page
+        if page and page.mspTimeout then page.mspTimeout() end
     end
 end
 
 -- Reset queue + MSP state
 function MspQueueController:clear()
-    rfsuite.session.mspBusy = false
+    if rfsuite.session then rfsuite.session.mspBusy = false end
     self.mspBusyStart = nil
     self.queue = newQueue()
     self.currentMessage = nil
@@ -350,7 +421,9 @@ function MspQueueController:clear()
     self._nextMessageAt = 0
     self.uuid = nil
     self.apiname = nil
-    rfsuite.tasks.msp.common.mspClearTxBuf()
+    if rfsuite.tasks and rfsuite.tasks.msp and rfsuite.tasks.msp.common then
+        rfsuite.tasks.msp.common.mspClearTxBuf()
+    end
 end
 
 -- Add message to queue (skip duplicate UUIDs; optional clone)
@@ -359,6 +432,11 @@ function MspQueueController:add(message)
     if not message then
         if LOG_ENABLED_MSP() then utils.log("Unable to queue - nil message.", "debug") end
         return
+    end
+    -- Reset per-transfer timeout stats when starting a fresh queue.
+    local session = rfsuite.session
+    if session and self.currentMessage == nil and self:queueCount() == 0 then
+        session.mspTimeouts = 0
     end
     -- allow apiname to distinguish otherwise identical MSP calls
     local key = message.uuid
@@ -375,6 +453,7 @@ function MspQueueController:add(message)
     self._qidSeq = (self._qidSeq or 0) + 1
     toQueue._qid = self._qidSeq
     qpush(self.queue, toQueue)
+    setMspStatus(formatMspStatus(toQueue, "queued"))
     return self
 end
 
@@ -393,4 +472,3 @@ function MspQueueController:pendingByteCost()
 end
 
 return MspQueueController.new()
-

@@ -52,7 +52,9 @@ local userpref_defaults = {
         hs_loader = 0,
         theme_loader = 1,  
         save_confirm = true,   
-        reload_confirm = true  
+        reload_confirm = true,
+        mspstatusdialog = true,
+        save_armed_warning = true
     },
     localizations = {
         temperature_unit = 0,
@@ -112,6 +114,15 @@ local userpref_file = prefs_dir .. "/preferences.ini"
 local master_ini = rfsuite.ini.load_ini_file(userpref_file) or {}
 local updated_ini = rfsuite.ini.merge_ini_tables(master_ini, userpref_defaults)
 rfsuite.preferences = updated_ini
+
+-- Migrate legacy developer.mspstatusdialog to general.mspstatusdialog if present
+if rfsuite.preferences then
+    local gen = rfsuite.preferences.general
+    local dev = rfsuite.preferences.developer
+    if gen and gen.mspstatusdialog == nil and dev and dev.mspstatusdialog ~= nil then
+        gen.mspstatusdialog = dev.mspstatusdialog
+    end
+end
 
 if not rfsuite.ini.ini_tables_equal(master_ini, updated_ini) then rfsuite.ini.save_ini_file(userpref_file, updated_ini) end
 

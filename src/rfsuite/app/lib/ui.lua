@@ -4,6 +4,18 @@
 ]] --
 
 local rfsuite = require("rfsuite")
+local lcd = lcd
+local lcdColor = lcd.color
+local lcdDrawText = lcd.drawText
+local lcdFont = lcd.font
+local lcdGetTextSize = lcd.getTextSize
+local lcdGetWindowSize = lcd.getWindowSize
+local lcdLoadMask = lcd.loadMask
+local osClock = os.clock
+local tableConcat = table.concat
+local mathFloor = math.floor
+local app = rfsuite.app
+local session = rfsuite.session
 
 local ui = {}
 
@@ -14,15 +26,139 @@ local utils = rfsuite.utils
 local tasks = rfsuite.tasks
 local apiCore
 
+local MSP_DEBUG_PLACEHOLDER = "MSP Waiting"
+
+local function getMspStatusExtras()
+    local m = tasks and tasks.msp
+    if not m then return nil end
+    local q = m.mspQueue
+    if not q then return nil end
+
+    local parts = {}
+
+    local common = m.common
+    if common and common.getLastTxCmd then
+        local ok_tx, tx = pcall(common.getLastTxCmd)
+        if ok_tx and tx and tx ~= 0 then parts[#parts + 1] = "Transmit " .. tostring(tx) end
+    end
+    if common and common.getLastRxCmd then
+        local ok_rx, rx = pcall(common.getLastRxCmd)
+        if ok_rx and rx and rx ~= 0 then parts[#parts + 1] = "Receive " .. tostring(rx) end
+    end
+
+    if q.retryCount ~= nil then
+        local retries = q.retryCount - 1
+        if retries > 0 then
+            parts[#parts + 1] = "Retry " .. tostring(retries)
+        end
+    end
+
+    local crc = session and session.mspCrcErrors
+    if crc and crc > 0 then
+        parts[#parts + 1] = "CRC " .. tostring(crc)
+    end
+
+    if session then
+        local tout = session.mspTimeouts or 0
+        if tout > 0 then
+            parts[#parts + 1] = "Timeout " .. tostring(tout)
+        end
+    end
+
+    if #parts == 0 then return nil end
+    return tableConcat(parts, " ")
+end
+
+local function getMspStatusForDialog()
+    if not session then return nil end
+    if session.mspStatusClearAt and osClock() >= session.mspStatusClearAt then
+        session.mspStatusMessage = nil
+        session.mspStatusClearAt = nil
+    end
+    local mspStatus = session.mspStatusMessage
+    if not mspStatus and session.mspStatusLast and session.mspStatusUpdatedAt and (osClock() - session.mspStatusUpdatedAt) < 0.75 then
+        mspStatus = session.mspStatusLast
+    end
+    if preferences and preferences.general and preferences.general.mspstatusdialog then
+        local extras = getMspStatusExtras()
+        if extras then
+            if mspStatus then
+                mspStatus = mspStatus .. " " .. extras
+            else
+                mspStatus = extras
+            end
+        end
+    end
+
+    return mspStatus
+end
+
+function ui.registerProgressDialog(handle, baseMessage)
+    if not session then return end
+    session.progressDialog = {
+        handle = handle,
+        baseMessage = baseMessage or ""
+    }
+end
+
+function ui.clearProgressDialog(handle)
+    if not session or not session.progressDialog then return end
+    if handle == nil or session.progressDialog.handle == handle then
+        session.progressDialog = nil
+    end
+end
+
+function ui.updateProgressDialogMessage(statusOverride)
+
+    -- First update the standard app dialogs (the ones actually on screen)
+    if app and app.dialogs then
+        if app.dialogs.progressDisplay and app.dialogs.progress then
+            local mspStatus = statusOverride or getMspStatusForDialog()
+            local base = app.dialogs.progressBaseMessage or ""
+            local showDebug = preferences and preferences.general and preferences.general.mspstatusdialog
+            local msg = showDebug and (mspStatus or MSP_DEBUG_PLACEHOLDER) or base
+            if showDebug and mspStatus then msg = mspStatus end
+            pcall(function() app.dialogs.progress:message(msg) end)
+        end
+        if app.dialogs.saveDisplay and app.dialogs.save then
+            local mspStatus = statusOverride or getMspStatusForDialog()
+            local base = app.dialogs.saveBaseMessage or ""
+            local showDebug = preferences and preferences.general and preferences.general.mspstatusdialog
+            local msg = showDebug and (mspStatus or MSP_DEBUG_PLACEHOLDER) or base
+            if showDebug and mspStatus then msg = mspStatus end
+            pcall(function() app.dialogs.save:message(msg) end)
+        end
+    end
+
+    -- Then update any custom registered dialog
+    local pd = session and session.progressDialog
+    if pd and pd.handle then
+        local mspStatus = statusOverride or getMspStatusForDialog()
+        local composedMessage = pd.baseMessage or ""
+        local showDebug = preferences and preferences.general and preferences.general.mspstatusdialog
+        if showDebug then
+            composedMessage = mspStatus or MSP_DEBUG_PLACEHOLDER
+        end
+        pcall(function() pd.handle:message(composedMessage) end)
+    end
+end
+
 local function getApiCore()
     if apiCore then return apiCore end
     apiCore = assert(loadfile("SCRIPTS:/" .. rfsuite.config.baseDir .. "/tasks/scheduler/msp/api_core.lua"))()
     return apiCore
 end
 
+local function openProgressDialog(opts)
+    if utils.ethosVersionAtLeast({1, 7, 0}) and form.openWaitDialog then
+        opts.progress = true
+        return form.openWaitDialog(opts)
+    end
+    return form.openProgressDialog(opts)
+end
+
 function ui.progressDisplay(title, message, speed)
 
-    local app = rfsuite.app
 
     if app.dialogs.progressDisplay then return end
 
@@ -37,14 +173,19 @@ function ui.progressDisplay(title, message, speed)
 
     local reachedTimeout = false
 
+    if session then session.mspTimeouts = 0 end
     app.dialogs.progressDisplay = true
-    app.dialogs.progressWatchDog = os.clock()
-    app.dialogs.progress = form.openProgressDialog({
+    app.dialogs.progressWatchDog = osClock()
+    app.dialogs.progressBaseMessage = message
+    app.dialogs.progressMspStatusLast = nil
+    local useWaitDialog = utils.ethosVersionAtLeast({1, 7, 0}) and form.openWaitDialog
+    app.dialogs.progressIsWait = useWaitDialog or false
+    app.dialogs.progress = openProgressDialog({
         title = title,
         message = message,
         close = function() end,
         wakeup = function()
-            local app = rfsuite.app
+            local now = osClock()
 
             app.dialogs.progress:value(app.dialogs.progressCounter)
 
@@ -60,28 +201,50 @@ function ui.progressDisplay(title, message, speed)
             end
 
             local isProcessing = (app.Page and app.Page.apidata and app.Page.apidata.apiState and app.Page.apidata.apiState.isProcessing) or false
-            local apiV = tostring(rfsuite.session.apiVersion)
+            local apiV = tostring(session.apiVersion)
 
             if not app.triggers.closeProgressLoader then
                 app.dialogs.progressCounter = app.dialogs.progressCounter + (2 * mult)
-                if app.dialogs.progressCounter > 50 and rfsuite.session.apiVersion and not utils.stringInArray(rfsuite.config.supportedMspApiVersion, apiV) then print("No API version yet") end
+                if app.dialogs.progressCounter > 50 and session.apiVersion and not utils.stringInArray(rfsuite.config.supportedMspApiVersion, apiV) then print("No API version yet") end
             elseif isProcessing then
                 app.dialogs.progressCounter = app.dialogs.progressCounter + (3 * mult)
             elseif app.triggers.closeProgressLoader and tasks.msp and tasks.msp.mspQueue:isProcessed() then
-                if rfsuite.preferences.general.hs_loader == 0 then mult = mult * 2 end
+                if app.dialogs.progressIsWait then
+                    app.dialogs.progress:close()
+                    ui.clearProgressDialog(app.dialogs.progress)
+                    app.dialogs.progressDisplay = false
+                    app.dialogs.progressCounter = 0
+                    app.triggers.closeProgressLoader = false
+                    app.dialogs.progressSpeed = false
+                    app.triggers.closeProgressLoaderNoisProcessed = false
+                    return
+                end
+                if preferences.general.hs_loader == 0 then mult = mult * 2 end
                 app.dialogs.progressCounter = app.dialogs.progressCounter + (15 * mult)
                 if app.dialogs.progressCounter >= 100 then
                     app.dialogs.progress:close()
+                    ui.clearProgressDialog(app.dialogs.progress)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.triggers.closeProgressLoader = false
 
                 end
             elseif app.triggers.closeProgressLoader and app.triggers.closeProgressLoaderNoisProcessed then
-                if rfsuite.preferences.general.hs_loader == 0 then mult = mult * 1.5 end
+                if app.dialogs.progressIsWait then
+                    app.dialogs.progress:close()
+                    ui.clearProgressDialog(app.dialogs.progress)
+                    app.dialogs.progressDisplay = false
+                    app.dialogs.progressCounter = 0
+                    app.triggers.closeProgressLoader = false
+                    app.dialogs.progressSpeed = false
+                    app.triggers.closeProgressLoaderNoisProcessed = false
+                    return
+                end
+                if preferences.general.hs_loader == 0 then mult = mult * 1.5 end
                 app.dialogs.progressCounter = app.dialogs.progressCounter + (15 * mult)
                 if app.dialogs.progressCounter >= 100 then
                     app.dialogs.progress:close()
+                    ui.clearProgressDialog(app.dialogs.progress)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.triggers.closeProgressLoader = false
@@ -91,12 +254,13 @@ function ui.progressDisplay(title, message, speed)
                 end
             end
 
-            if app.dialogs.progressWatchDog and tasks.msp and (os.clock() - app.dialogs.progressWatchDog) > tonumber(tasks.msp.protocol.pageReqTimeout) and app.dialogs.progressDisplay == true and reachedTimeout == false then
+            if app.dialogs.progressWatchDog and tasks.msp and (osClock() - app.dialogs.progressWatchDog) > tonumber(tasks.msp.protocol.pageReqTimeout) and app.dialogs.progressDisplay == true and reachedTimeout == false then
                 reachedTimeout = true
                 app.audio.playTimeout = true
                 app.dialogs.progress:message("@i18n(app.error_timed_out)@")
                 app.dialogs.progress:closeAllowed(true)
                 app.dialogs.progress:value(100)
+                ui.clearProgressDialog(app.dialogs.progress)
                 app.Page = app.PageTmp
                 app.PageTmp = nil
                 app.dialogs.progressCounter = 0
@@ -113,6 +277,7 @@ function ui.progressDisplay(title, message, speed)
                 app.dialogs.progressCounter = app.dialogs.progressCounter + (2 * mult)
                 if app.dialogs.progressCounter >= 100 then
                     app.dialogs.progress:close()
+                    ui.clearProgressDialog(app.dialogs.progress)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.dialogs.progressSpeed = false
@@ -120,33 +285,45 @@ function ui.progressDisplay(title, message, speed)
                 end
             end
 
+            local mspStatus = getMspStatusForDialog()
+            local showDebug = preferences and preferences.general and preferences.general.mspstatusdialog
+            local msg = showDebug and (mspStatus or MSP_DEBUG_PLACEHOLDER) or (app.dialogs.progressBaseMessage or "")
+            if showDebug and mspStatus then msg = mspStatus end
+            app.dialogs.progress:message(msg)
+
         end
     })
 
     app.dialogs.progressCounter = 0
     app.dialogs.progress:value(0)
     app.dialogs.progress:closeAllowed(false)
+    ui.registerProgressDialog(app.dialogs.progress, app.dialogs.progressBaseMessage)
 end
 
 function ui.progressDisplaySave(message)
-    local app = rfsuite.app
 
     local reachedTimeout = false
 
+    if session then session.mspTimeouts = 0 end
     app.dialogs.saveDisplay = true
-    app.dialogs.saveWatchDog = os.clock()
+    app.dialogs.saveWatchDog = osClock()
+    app.dialogs.saveBaseMessage = nil
+    app.dialogs.saveMspStatusLast = nil
 
     local SAVE_MESSAGE_TAG = {[app.pageStatus.saving] = "@i18n(app.msg_saving_settings)@", [app.pageStatus.eepromWrite] = "@i18n(app.msg_saving_settings)@", [app.pageStatus.rebooting] = "@i18n(app.msg_rebooting)@"}
 
     local resolvedMessage = message or SAVE_MESSAGE_TAG[app.pageState] or "@i18n(app.msg_saving_settings)@"
     local title = "@i18n(app.msg_saving)@"
+    app.dialogs.saveBaseMessage = resolvedMessage
 
-    app.dialogs.save = form.openProgressDialog({
+    local useWaitDialog = utils.ethosVersionAtLeast({1, 7, 0}) and form.openWaitDialog
+    app.dialogs.saveIsWait = useWaitDialog or false
+    app.dialogs.save = openProgressDialog({
         title = title,
         message = resolvedMessage,
         close = function() end,
         wakeup = function()
-            local app = rfsuite.app
+            local now = osClock()
 
             app.dialogs.save:value(app.dialogs.saveProgressCounter)
 
@@ -157,6 +334,15 @@ function ui.progressDisplaySave(message)
             if isProcessing then
                 app.dialogs.saveProgressCounter = app.dialogs.saveProgressCounter + 3
             elseif app.triggers.closeSaveFake then
+                if app.dialogs.saveIsWait then
+                    app.triggers.closeSaveFake = false
+                    app.dialogs.saveProgressCounter = 0
+                    app.dialogs.saveDisplay = false
+                    app.dialogs.saveWatchDog = nil
+                    app.dialogs.save:close()
+                    ui.clearProgressDialog(app.dialogs.save)
+                    return
+                end
                 app.dialogs.saveProgressCounter = app.dialogs.saveProgressCounter + 5
                 if app.dialogs.saveProgressCounter >= 100 then
                     app.triggers.closeSaveFake = false
@@ -164,12 +350,23 @@ function ui.progressDisplaySave(message)
                     app.dialogs.saveDisplay = false
                     app.dialogs.saveWatchDog = nil
                     app.dialogs.save:close()
+                    ui.clearProgressDialog(app.dialogs.save)
 
                 end
             elseif tasks.msp.mspQueue:isProcessed() then
+                if app.dialogs.saveIsWait then
+                    app.dialogs.save:close()
+                    ui.clearProgressDialog(app.dialogs.save)
+                    app.dialogs.saveDisplay = false
+                    app.dialogs.saveProgressCounter = 0
+                    app.triggers.closeSave = false
+                    app.triggers.isSaving = false
+                    return
+                end
                 app.dialogs.saveProgressCounter = app.dialogs.saveProgressCounter + 15
                 if app.dialogs.saveProgressCounter >= 100 then
                     app.dialogs.save:close()
+                    ui.clearProgressDialog(app.dialogs.save)
                     app.dialogs.saveDisplay = false
                     app.dialogs.saveProgressCounter = 0
                     app.triggers.closeSave = false
@@ -181,7 +378,7 @@ function ui.progressDisplaySave(message)
             end
 
             local timeout = tonumber(tasks.msp.protocol.saveTimeout + 5)
-            if (app.dialogs.saveWatchDog and (os.clock() - app.dialogs.saveWatchDog) > timeout) and reachedTimeout == false or (app.dialogs.saveProgressCounter > 120 and tasks.msp.mspQueue:isProcessed()) and app.dialogs.saveDisplay == true and reachedTimeout == false then
+            if (app.dialogs.saveWatchDog and (osClock() - app.dialogs.saveWatchDog) > timeout) and reachedTimeout == false or (app.dialogs.saveProgressCounter > 120 and tasks.msp.mspQueue:isProcessed()) and app.dialogs.saveDisplay == true and reachedTimeout == false then
                 reachedTimeout = true
                 app.audio.playTimeout = true
                 app.dialogs.save:message("@i18n(app.error_timed_out)@")
@@ -190,27 +387,33 @@ function ui.progressDisplaySave(message)
                 app.dialogs.saveProgressCounter = 0
                 app.dialogs.saveDisplay = false
                 app.triggers.isSaving = false
+                ui.clearProgressDialog(app.dialogs.save)
                 app.Page = app.PageTmp
                 app.PageTmp = nil
 
             end
+
+            local mspStatus = getMspStatusForDialog()
+            local showDebug = preferences and preferences.general and preferences.general.mspstatusdialog
+            local msg = showDebug and (mspStatus or MSP_DEBUG_PLACEHOLDER) or (app.dialogs.saveBaseMessage or "")
+            if showDebug and mspStatus then msg = mspStatus end
+            pcall(function() app.dialogs.save:message(msg) end)
         end
     })
 
     app.dialogs.save:value(0)
     app.dialogs.save:closeAllowed(false)
+    ui.registerProgressDialog(app.dialogs.save, app.dialogs.saveBaseMessage)
 end
 
 function ui.progressDisplayIsActive()
 
-    local app = rfsuite.app
 
     return app.dialogs.progressDisplay or app.dialogs.saveDisplay or app.dialogs.progressDisplayEsc or app.dialogs.nolinkDisplay or app.dialogs.badversionDisplay
 end
 
 function ui.disableAllFields()
 
-    local app = rfsuite.app
 
     for i = 1, #app.formFields do
         local field = app.formFields[i]
@@ -220,28 +423,24 @@ end
 
 function ui.enableAllFields()
 
-    local app = rfsuite.app
 
     for _, field in ipairs(app.formFields) do if type(field) == "userdata" then field:enable(true) end end
 end
 
 function ui.disableAllNavigationFields()
 
-    local app = rfsuite.app
 
     for _, v in pairs(app.formNavigationFields) do v:enable(false) end
 end
 
 function ui.enableAllNavigationFields()
 
-    local app = rfsuite.app
 
     for _, v in pairs(app.formNavigationFields) do v:enable(true) end
 end
 
 function ui.enableNavigationField(x)
 
-    local app = rfsuite.app
 
     local field = app.formNavigationFields[x]
     if field then field:enable(true) end
@@ -249,18 +448,22 @@ end
 
 function ui.disableNavigationField(x)
 
-    local app = rfsuite.app
 
     local field = app.formNavigationFields[x]
     if field then field:enable(false) end
 end
 
-function ui.resetPageState(activesection)
-    local app = rfsuite.app
-
-    if app.formFields then for i = 1, #app.formFields do app.formFields[i] = nil end end
-
-    if app.formLines then for i = 1, #app.formLines do app.formLines[i] = nil end end
+function ui.cleanupCurrentPage()
+    -- Let the current page release resources.
+    if app.Page then
+        local hook = app.Page.close or app.Page.onClose or app.Page.destroy
+        if type(hook) == "function" then
+            local ok, err = pcall(hook, app.Page)
+            if not ok then
+                utils.log("Page cleanup error: " .. tostring(err), "debug")
+            end
+        end
+    end
 
     if app.Page and app.Page.apidata then
         if app.Page.apidata.formdata then
@@ -276,23 +479,39 @@ function ui.resetPageState(activesection)
         app.Page.apidata = nil
     end
 
-    if rfsuite.tasks.msp then rfsuite.tasks.msp.api.resetApidata() end
+    if app.formFields then for i = 1, #app.formFields do app.formFields[i] = nil end end
+    if app.formLines then for i = 1, #app.formLines do app.formLines[i] = nil end end
+    if app.formNavigationFields then for k in pairs(app.formNavigationFields) do app.formNavigationFields[k] = nil end end
+
+    app.fieldHelpTxt = nil
+    ui._helpCache = {}
+
+    app.Page = nil
+    app.PageTmp = nil
+end
+
+function ui.resetPageState(activesection)
+
+    ui.cleanupCurrentPage()
+
+    if app.formFields then for i = 1, #app.formFields do app.formFields[i] = nil end end
+
+    if app.formLines then for i = 1, #app.formLines do app.formLines[i] = nil end end
 
     app.formFieldsOffline = {}
     app.formFieldsBGTask = {}
     app.lastLabel = nil
     app.isOfflinePage = false
-    app.Page = nil
-    app.PageTmp = nil
     app.lastMenu = nil
     app.lastIdx = nil
     app.lastTitle = nil
     app.lastScript = nil
 
-    rfsuite.session.lastPage = nil
+    session.lastPage = nil
     app.triggers.isReady = false
     app.uiState = app.uiStatus.mainMenu
     app.triggers.disableRssiTimeout = false
+    if tasks.msp then tasks.msp.api.resetApidata() end
 
     if activesection then
         if not app.gfx_buttons[activesection] then app.gfx_buttons[activesection] = {} end
@@ -306,7 +525,6 @@ function ui.resetPageState(activesection)
 end
 
 function ui.openMainMenu()
-    local app = rfsuite.app
 
     ui.resetPageState()
 
@@ -322,7 +540,7 @@ function ui.openMainMenu()
         preferences.general.iconsize = tonumber(preferences.general.iconsize)
     end
 
-    local w, h = lcd.getWindowSize()
+    local w, h = lcdGetWindowSize()
     local windowWidth = w
     local windowHeight = h
 
@@ -369,7 +587,7 @@ function ui.openMainMenu()
         bx = (buttonW + padding) * lc
 
         if preferences.general.iconsize ~= 0 then
-            app.gfx_buttons["mainmenu"][pidx] = app.gfx_buttons["mainmenu"][pidx] or lcd.loadMask(pvalue.image)
+            app.gfx_buttons["mainmenu"][pidx] = app.gfx_buttons["mainmenu"][pidx] or lcdLoadMask(pvalue.image)
         else
             app.gfx_buttons["mainmenu"][pidx] = nil
         end
@@ -409,7 +627,6 @@ end
 
 function ui.openMainMenuSub(activesection)
 
-    local app = rfsuite.app
     ui.resetPageState(activesection)
 
     utils.reportMemoryUsage("app.openMainMenuSub", "start")
@@ -448,7 +665,7 @@ function ui.openMainMenuSub(activesection)
 
     for idx, section in ipairs(MainMenu.sections) do
         if section.id == activesection then
-            local w, h = lcd.getWindowSize()
+            local w, h = lcdGetWindowSize()
             local windowWidth, windowHeight = w, h
             local padding = app.radio.buttonPadding
 
@@ -462,7 +679,7 @@ function ui.openMainMenuSub(activesection)
                 paint = function() end,
                 press = function()
                     app.lastIdx = nil
-                    rfsuite.session.lastPage = nil
+                    session.lastPage = nil
                     if app.Page and app.Page.onNavMenu then app.Page.onNavMenu(app.Page) end
                     app.ui.openMainMenu()
                 end
@@ -484,7 +701,7 @@ function ui.openMainMenuSub(activesection)
                         local x = (buttonW + padding) * lc
 
                         if preferences.general.iconsize ~= 0 then
-                            app.gfx_buttons[activesection][pidx] = app.gfx_buttons[activesection][pidx] or lcd.loadMask("app/modules/" .. page.folder .. "/" .. page.image)
+                            app.gfx_buttons[activesection][pidx] = app.gfx_buttons[activesection][pidx] or lcdLoadMask("app/modules/" .. page.folder .. "/" .. page.image)
                         else
                             app.gfx_buttons[activesection][pidx] = nil
                         end
@@ -527,7 +744,6 @@ function ui.getLabel(id, page)
 end
 
 function ui.fieldBoolean(i,lf)
-    local app = rfsuite.app
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
     local f = fields[i]
@@ -590,7 +806,6 @@ function ui.fieldBoolean(i,lf)
 end
 
 function ui.fieldChoice(i,lf)
-    local app = rfsuite.app
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
     local f = fields[i]
@@ -639,7 +854,6 @@ function ui.fieldChoice(i,lf)
 end
 
 function ui.fieldSlider(i,lf)
-    local app = rfsuite.app
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
     local f = fields[i]
@@ -709,7 +923,6 @@ function ui.fieldSlider(i,lf)
 end
 
 function ui.fieldNumber(i,lf)
-    local app = rfsuite.app
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
     local f = fields[i]
@@ -796,7 +1009,6 @@ function ui.fieldNumber(i,lf)
 end
 
 function ui.fieldSource(i,lf)
-    local app = rfsuite.app
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
     local f = fields[i]
@@ -859,7 +1071,6 @@ function ui.fieldSource(i,lf)
 end
 
 function ui.fieldSensor(i,lf)
-    local app = rfsuite.app
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
     local f = fields[i]
@@ -922,7 +1133,6 @@ function ui.fieldSensor(i,lf)
 end
 
 function ui.fieldColor(i,lf)
-    local app = rfsuite.app
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
     local f = fields[i]
@@ -989,7 +1199,6 @@ function ui.fieldColor(i,lf)
 end
 
 function ui.fieldSwitch(i,lf)
-    local app = rfsuite.app
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
     local f = fields[i]
@@ -1052,7 +1261,6 @@ function ui.fieldSwitch(i,lf)
 end
 
 function ui.fieldStaticText(i,lf)
-    local app = rfsuite.app
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
     local f = fields[i]
@@ -1089,7 +1297,6 @@ function ui.fieldStaticText(i,lf)
 end
 
 function ui.fieldText(i,lf)
-    local app = rfsuite.app
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
     local f = fields[i]
@@ -1144,7 +1351,6 @@ function ui.fieldText(i,lf)
 end
 
 function ui.fieldLabel(f, i, l)
-    local app = rfsuite.app
 
     if f.t then
         if f.t2 then f.t = f.t2 end
@@ -1168,16 +1374,15 @@ function ui.fieldLabel(f, i, l)
 end
 
 function ui.fieldHeader(title)
-    local app = rfsuite.app
     local radio = app.radio
     local formFields = app.formFields
     local lcdWidth = app.lcdWidth
 
     if not title then title = "No Title" end
 
-    local w, _ = lcd.getWindowSize()
+    local w, _ = lcdGetWindowSize()
     local padding = 5
-    local colStart = math.floor(w * 59.4 / 100)
+    local colStart = mathFloor(w * 59.4 / 100)
     if radio.navButtonOffset then colStart = colStart - radio.navButtonOffset end
 
     local buttonW = radio.buttonWidth and radio.menuButtonWidth or ((w - colStart) / 3 - padding)
@@ -1191,7 +1396,6 @@ function ui.fieldHeader(title)
 end
 
 function ui.openPageRefresh(idx, title, script, extra1, extra2, extra3, extra5, extra6)
-    local app = rfsuite.app
     app.triggers.isReady = false
 end
 
@@ -1220,7 +1424,8 @@ function ui.openPage(idx, title, script, extra1, extra2, extra3, extra5, extra6)
 
     utils.reportMemoryUsage("ui.openPage: " .. script, "start")
 
-    local app = rfsuite.app
+    -- Ensure previous page releases resources before loading a new one.
+    ui.cleanupCurrentPage()
 
     app.uiState = app.uiStatus.pages
     app.triggers.isReady = false
@@ -1251,7 +1456,7 @@ function ui.openPage(idx, title, script, extra1, extra2, extra3, extra5, extra6)
     app.lastScript = script
 
     form.clear()
-    rfsuite.session.lastPage = script
+    session.lastPage = script
 
     local pageTitle = app.Page.pageTitle or title
     app.ui.fieldHeader(pageTitle)
@@ -1266,7 +1471,7 @@ function ui.openPage(idx, title, script, extra1, extra2, extra3, extra5, extra6)
     if app.Page.apidata and app.Page.apidata.formdata and app.Page.apidata.formdata.fields then
         for i, field in ipairs(app.Page.apidata.formdata.fields) do
             local label = app.Page.apidata.formdata.labels
-            if rfsuite.session.apiVersion == nil then return end
+            if session.apiVersion == nil then return end
 
             local valid = (field.apiversion == nil or utils.apiVersionCompare(">=", field.apiversion)) and (field.apiversionlt == nil or utils.apiVersionCompare("<", field.apiversionlt)) and (field.apiversiongt == nil or utils.apiVersionCompare(">", field.apiversiongt)) and (field.apiversionlte == nil or utils.apiVersionCompare("<=", field.apiversionlte)) and (field.apiversiongte == nil or utils.apiVersionCompare(">=", field.apiversiongte)) and
                               (field.enablefunction == nil or field.enablefunction())
@@ -1312,7 +1517,6 @@ end
 
 function ui.navigationButtons(x, y, w, h)
 
-    local app = rfsuite.app
 
     local xOffset = 0
     local padding = 5
@@ -1431,15 +1635,12 @@ end
 
 function ui.openPageHelp(txtData, section)
 
-    local app = rfsuite.app
 
-    local message = table.concat(txtData, "\r\n\r\n")
+    local message = tableConcat(txtData, "\r\n\r\n")
     form.openDialog({width = app.lcdWidth, title = "Help - " .. app.lastTitle, message = message, buttons = {{label = "@i18n(app.btn_close)@", action = function() return true end}}, options = TEXT_LEFT})
 end
 
 function ui.injectApiAttributes(formField, f, v)
-    local utils = rfsuite.utils
-    local app = rfsuite.app
     local log = utils.log
 
     if v.decimals and not f.decimals then
@@ -1538,12 +1739,9 @@ end
 
 function ui.mspApiUpdateFormAttributes()
 
-    local app = rfsuite.app
-    local values = rfsuite.tasks.msp.api.apidata.values
-    local structure = rfsuite.tasks.msp.api.apidata.structure
+    local values = tasks.msp.api.apidata.values
+    local structure = tasks.msp.api.apidata.structure
 
-    local app = rfsuite.app
-    local utils = rfsuite.utils
     local log = utils.log
 
     if not (app.Page.apidata.formdata and app.Page.apidata.api and app.Page.apidata.formdata.fields) then
@@ -1646,7 +1844,6 @@ function ui.mspApiUpdateFormAttributes()
 end
 
 function ui.requestPage()
-    local app = rfsuite.app
     local log = utils.log
 
     if not app.Page.apidata then return end
@@ -1666,14 +1863,14 @@ function ui.requestPage()
     end
     state.isProcessing = true
 
-    if not rfsuite.tasks.msp.api.apidata.values then
+    if not tasks.msp.api.apidata.values then
         log("requestPage Initialize values on first run", "debug")
-        rfsuite.tasks.msp.api.apidata.values = {}
-        rfsuite.tasks.msp.api.apidata.structure = {}
-        rfsuite.tasks.msp.api.apidata.receivedBytesCount = {}
-        rfsuite.tasks.msp.api.apidata.receivedBytes = {}
-        rfsuite.tasks.msp.api.apidata.positionmap = {}
-        rfsuite.tasks.msp.api.apidata.other = {}
+        tasks.msp.api.apidata.values = {}
+        tasks.msp.api.apidata.structure = {}
+        tasks.msp.api.apidata.receivedBytesCount = {}
+        tasks.msp.api.apidata.receivedBytes = {}
+        tasks.msp.api.apidata.positionmap = {}
+        tasks.msp.api.apidata.other = {}
     end
 
     if state.currentIndex == nil then state.currentIndex = 1 end
@@ -1769,12 +1966,12 @@ function ui.requestPage()
                 return
             end
             log("[SUCCESS] API: " .. apiKey .. " completed successfully.", "debug")
-            rfsuite.tasks.msp.api.apidata.values[apiKey] = API.data().parsed
-            rfsuite.tasks.msp.api.apidata.structure[apiKey] = API.data().structure
-            rfsuite.tasks.msp.api.apidata.receivedBytes[apiKey] = API.data().buffer
-            rfsuite.tasks.msp.api.apidata.receivedBytesCount[apiKey] = API.data().receivedBytesCount
-            rfsuite.tasks.msp.api.apidata.positionmap[apiKey] = API.data().positionmap
-            rfsuite.tasks.msp.api.apidata.other[apiKey] = API.data().other or {}
+            tasks.msp.api.apidata.values[apiKey] = API.data().parsed
+            tasks.msp.api.apidata.structure[apiKey] = API.data().structure
+            tasks.msp.api.apidata.receivedBytes[apiKey] = API.data().buffer
+            tasks.msp.api.apidata.receivedBytesCount[apiKey] = API.data().receivedBytesCount
+            tasks.msp.api.apidata.positionmap[apiKey] = API.data().positionmap
+            tasks.msp.api.apidata.other[apiKey] = API.data().other or {}
             app.Page.apidata.retryCount[apiKey] = 0
             state.currentIndex = state.currentIndex + 1
             API = nil
@@ -1811,19 +2008,18 @@ end
 
 function ui.saveSettings()
 
-    local app = rfsuite.app
     local log = utils.log
 
     if app.pageState == app.pageStatus.saving then return end
 
     app.pageState = app.pageStatus.saving
-    app.saveTS = os.clock()
+    app.saveTS = osClock()
 
     log("Saving data", "debug")
 
     local mspapi = app.Page.apidata
     local apiList = mspapi.api
-    local values = rfsuite.tasks.msp.api.apidata.values
+    local values = tasks.msp.api.apidata.values
 
     local totalRequests = #apiList
     local completedRequests = 0
@@ -1837,7 +2033,7 @@ function ui.saveSettings()
         utils.reportMemoryUsage("ui.saveSettings " .. apiNAME, "start")
 
         local payloadData = values[apiNAME]
-        local payloadStructure = rfsuite.tasks.msp.api.apidata.structure[apiNAME]
+        local payloadStructure = tasks.msp.api.apidata.structure[apiNAME]
 
         local API = tasks.msp.api.load(apiNAME)
         API.setErrorHandler(function(self, buf) app.triggers.saveFailed = true end)
@@ -1874,7 +2070,7 @@ function ui.saveSettings()
                 local originalValue = tonumber(v) or 0
                 local newValue = originalValue
                 for bit, idx in pairs(fieldMapBitmap[k]) do
-                    local fieldVal = math.floor(tonumber(app.Page.apidata.formdata.fields[idx].value) or 0)
+                    local fieldVal = mathFloor(tonumber(app.Page.apidata.formdata.fields[idx].value) or 0)
                     local mask = 1 << (bit)
                     if fieldVal ~= 0 then
                         newValue = newValue | mask
@@ -1914,8 +2110,6 @@ function ui.saveSettings()
 end
 
 function ui.rebootFc()
-    local app = rfsuite.app
-    local utils = rfsuite.utils
 
     app.pageState = app.pageStatus.rebooting
     tasks.msp.mspQueue:add({
@@ -1930,13 +2124,11 @@ end
 
 function ui.adminStatsOverlay()
 
-    local app = rfsuite.app
-    local utils = rfsuite.utils
 
-    if rfsuite.preferences and preferences.developer and preferences.developer.overlaystatsadmin then
+    if preferences and preferences.developer and preferences.developer.overlaystatsadmin then
 
-        lcd.font(FONT_XXS)
-        lcd.color(lcd.RGB(255, 255, 255))
+        lcdFont(FONT_XXS)
+        lcdColor(lcd.RGB(255, 255, 255))
 
         local cpuUsage = (rfsuite.performance and rfsuite.performance.cpuload) or 0
         local ramUsed = (rfsuite.performance and rfsuite.performance.usedram) or 0
@@ -1955,11 +2147,11 @@ function ui.adminStatsOverlay()
             local b = cfg.blocks[key];
             if not b then return end
 
-            lcd.drawText(b.x, y, label)
+            lcdDrawText(b.x, y, label)
 
-            local vx = b.x + lcd.getTextSize(label) + cfg.labelGap
-            local vWidth = lcd.getTextSize(valueWithUnit)
-            lcd.drawText(math.max(vx, b.valueRight - vWidth), y, valueWithUnit)
+            local vx = b.x + lcdGetTextSize(label) + cfg.labelGap
+            local vWidth = lcdGetTextSize(valueWithUnit)
+            lcdDrawText(math.max(vx, b.valueRight - vWidth), y, valueWithUnit)
         end
 
         for i = 1, #rows do

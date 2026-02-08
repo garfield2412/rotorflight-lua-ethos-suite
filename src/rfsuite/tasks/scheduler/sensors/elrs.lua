@@ -7,6 +7,10 @@ local rfsuite = require("rfsuite")
 
 local arg = {...}
 local config = arg[1]
+local os_clock = os.clock
+local math_floor = math.floor
+local system_getSource = system.getSource
+local model_createSensor = model.createSensor
 
 local elrs = {}
 
@@ -153,16 +157,19 @@ end
 
 local function rebuildRelevantSidSet()
 
-    if elrs._relevantSidSet ~= nil then return end
     local cfg = rfsuite and rfsuite.session and rfsuite.session.telemetryConfig
     if not cfg then
 
         elrs._relevantSidSet = nil
+        elrs._relevantSig = nil
         return
     end
-    elrs._relevantSidSet = {}
 
-    elrs._relevantSig = telemetrySlotsSignature(cfg)
+    local sig = telemetrySlotsSignature(cfg)
+    if elrs._relevantSidSet ~= nil and elrs._relevantSig == sig then return end
+
+    elrs._relevantSidSet = {}
+    elrs._relevantSig = sig
 
     for _, slotId in ipairs(cfg) do
         local apps = sidLookup[slotId]
@@ -181,14 +188,14 @@ local function sidIsRelevant(sid)
     return elrs._relevantSidSet[sid] == true
 end
 
-local function nowMs() return math.floor(os.clock() * 1000) end
+local function nowMs() return math_floor(os_clock() * 1000) end
 local REFRESH_INTERVAL_MS = 2500
 
 local function createTelemetrySensor(uid, name, unit, dec, value, min, max)
 
     if rfsuite.session.telemetryState == false then return end
 
-    sensors['uid'][uid] = model.createSensor({type = SENSOR_TYPE_DIY})
+    sensors['uid'][uid] = model_createSensor({type = SENSOR_TYPE_DIY})
     sensors['uid'][uid]:name(name)
     sensors['uid'][uid]:appId(uid)
     sensors['uid'][uid]:module(1)
@@ -236,7 +243,7 @@ local function setTelemetryValue(uid, subid, instance, value, unit, dec, name, m
     if not sidIsRelevant(uid) then return end
 
     if sensors['uid'][uid] == nil then
-        sensors['uid'][uid] = system.getSource({category = CATEGORY_TELEMETRY_SENSOR, appId = uid})
+        sensors['uid'][uid] = system_getSource({category = CATEGORY_TELEMETRY_SENSOR, appId = uid})
         if sensors['uid'][uid] == nil then
             if rfsuite.utils and rfsuite.utils.log then rfsuite.utils.log("Create sensor: " .. tostring(uid), "debug") end
             createTelemetrySensor(uid, name, unit, dec, value, min, max)
@@ -360,8 +367,8 @@ local function decLatLong(data, pos)
     lat, pos = decS32(data, pos)
     lon, pos = decS32(data, pos)
 
-    lat = math.floor(lat * 0.001)
-    lon = math.floor(lon * 0.001)
+    lat = math_floor(lat * 0.001)
+    lon = math_floor(lon * 0.001)
 
     setTelemetryValue(0x1125, 0, 0, lat, UNIT_DEGREE, 4, "GPS Latitude", -10000000000, 10000000000)
     setTelemetryValue(0x112B, 0, 0, lon, UNIT_DEGREE, 4, "GPS Longitude", -10000000000, 10000000000)
@@ -558,10 +565,13 @@ elrs._haveFrameId = false
 function elrs.crossfirePop()
 
     if (rfsuite.session.telemetryState == false) then
-        local module = model.getModule(rfsuite.session.telemetrySensor:module())
-        if module ~= nil and module.muteSensorLost ~= nil then module:muteSensorLost(5.0) end
+        local ts = rfsuite.session.telemetrySensor
+        if ts then
+            local module = model.getModule(ts:module())
+            if module ~= nil and module.muteSensorLost ~= nil then module:muteSensorLost(5.0) end
+        end
 
-        if rfsuite.session.telemetryState == false then resetSensors() end
+        resetSensors()
 
         return false
     else
@@ -636,7 +646,11 @@ function elrs.wakeup()
     rebuildRelevantSidSet()
 
     if rfsuite.session.telemetryState and rfsuite.session.telemetrySensor then
-        while elrs.crossfirePop() do end
+        local budget = (elrs.popBudgetSeconds or (config and config.elrsPopBudgetSeconds) or 0.25)
+        local deadline = (budget and budget > 0) and (os_clock() + budget) or nil
+        while elrs.crossfirePop() do
+            if deadline and os_clock() >= deadline then break end
+        end
         refreshStaleSensors()
     else
         resetSensors()

@@ -290,6 +290,11 @@
         "translation": "Protokolliere MSP-Daten",
         "needs_translation": false
       },
+      "txt_mspstatusdialog": {
+        "english": "MSP Activity Display",
+        "translation": "MSP Activity Display",
+        "needs_translation": false
+      },
       "txt_queuesize": {
         "english": "Log MSP queue size",
         "translation": "MSP-Warteschlange",
@@ -403,6 +408,11 @@
       "txt_save_confirm": {
         "english": "Confirm on save",
         "translation": "Bestätigen beim Speichern",
+        "needs_translation": false
+      },
+      "txt_save_armed_warning": {
+        "english": "Show disarm-to-save warning",
+        "translation": "Warnung 'Bitte disarmen zum Speichern' anzeigen",
         "needs_translation": false
       },
       "txt_reload_confirm": {
@@ -3825,15 +3835,10 @@
         "translation": "PWM-Ausgang",
         "needs_translation": false
       },
-      "fbus": {
-        "english": "FBUS Output",
-        "translation": "FBUS-Ausgang",
-        "needs_translation": false
-      },
-      "sbus": {
-        "english": "SBUS Output",
-        "translation": "SBUS-Ausgang",
-        "needs_translation": false
+      "bus": {
+        "english": "BUS Output",
+        "translation": "BUS Output",
+        "needs_translation": true
       },
       "tbl_yes": {
         "english": "YES",

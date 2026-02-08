@@ -1,3 +1,13 @@
+# 2.3.0-20260208
+
+Snapshot release of Ethos Suite
+
+ - massive speed improvements
+ - ethos suite update tool (windows, apple, linux)
+ - restructure of admin module
+ - improve msp speed and reliability over sport
+ - improved developer deployment tools
+
 # 2.3.0-20260118
 
 Snapshot release of Ethos Suite

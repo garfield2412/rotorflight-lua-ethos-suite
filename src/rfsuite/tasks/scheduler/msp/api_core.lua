@@ -9,6 +9,15 @@ local rfsuite = require("rfsuite")
 -- Optimized locals to reduce global/table lookups
 local utils = rfsuite.utils
 local math_min = math.min
+local math_floor = math.floor
+local table_insert = table.insert
+local string_format = string.format
+local type = type
+local ipairs = ipairs
+local pairs = pairs
+local tostring = tostring
+local error = error
+
 local core = {}
 
 local mspHelper = rfsuite.tasks.msp.mspHelper
@@ -97,40 +106,6 @@ local function get_type_size(data_type)
     return TYPE_SIZES[data_type] or 1
 end
 
-------------------------------------------------------------
--- Chunk parser (processes a few fields at a time)
-------------------------------------------------------------
-
-local function parseMSPChunk(buf, structure, state)
-    local processedFields = 0
-    local startIndex = state.index
-
-    while state.index <= #structure and processedFields < 5 do
-        local field = structure[state.index]
-        state.index = state.index + 1
-
-        -- Skip if API version too old
-        if field.apiVersion and utils.apiVersionCompare("<", field.apiVersion) then goto continue end
-
-        local readFunction = mspHelper["read" .. field.type]
-        if not readFunction then
-            utils.log("Error: Unknown type " .. field.type, "debug")
-            state.error = "Unknown type: " .. field.type
-            return false
-        end
-
-        local data = readFunction(buf, field.byteorder or "little")
-        state.parsedData[field.field] = data
-        processedFields = processedFields + 1
-
-        ::continue::
-    end
-
-    utils.log(string.format("Chunk processed fields %d–%d", startIndex, state.index - 1), "debug")
-    return state.index > #structure
-end
-
-------------------------------------------------------------
 -- Full MSP data parsing (supports chunked mode)
 ------------------------------------------------------------
 
@@ -201,7 +176,7 @@ function core.parseMSPData(API_NAME, buf, structure, processed, other, options)
                     positionmap = state.positionmap,
                     processed = state.processed,
                     other = state.other,
-                    receivedBytesCount = math.floor((buf.offset or 1) - 1)
+                    receivedBytesCount = math_floor((buf.offset or 1) - 1)
                 }
                 if completionCallback then completionCallback(final) end
             else
@@ -250,7 +225,7 @@ function core.parseMSPData(API_NAME, buf, structure, processed, other, options)
         positionmap = position_map,
         processed = processed,
         other = other,
-        receivedBytesCount = math.floor(buf.offset - 1)
+        receivedBytesCount = math_floor(buf.offset - 1)
     }
 
     completionCallback(final)
@@ -260,51 +235,12 @@ end
 -- Structure analysis helpers
 ------------------------------------------------------------
 
-function core.calculateMinBytes(structure)
-    local total = 0
-    for _, param in ipairs(structure) do
-        if (not param.apiVersion or utils.apiVersionCompare(">=", param.apiVersion))
-           and param.mandatory ~= false then
-            total = total + get_type_size(param.type)
-        end
-    end
-    return total
-end
-
-function core.filterByApiVersion(structure)
-    local filtered = {}
-    for _, param in ipairs(structure) do
-        if not param.apiVersion or utils.apiVersionCompare(">=", param.apiVersion) then
-            table.insert(filtered, param)
-        end
-    end
-    return filtered
-end
-
--- Build simulation response from structure definition
-function core.buildSimResponse(dataStructure, apiName)
-    if system.getVersion().simulation == false then return nil end
-
-    local response = {}
-    for _, field in ipairs(dataStructure) do
-        if field.simResponse then
-            for _, v in ipairs(field.simResponse) do table.insert(response, v) end
-        else
-            local size = get_type_size(field.type)
-            for i = 1, size do table.insert(response, 0) end
-        end
-    end
-
-    return response
-end
-
-------------------------------------------------------------
 -- Completion / error handler helpers
 ------------------------------------------------------------
 
 function core.createHandlers()
     local completeHandler = nil
-    privateErrorHandler = nil
+    local privateErrorHandler = nil
 
     return {
         setCompleteHandler = function(fn)
@@ -403,7 +339,7 @@ function core.buildDeltaPayload(apiname, payload, api_structure, positionmap, re
         -- Apply scale and quantization
         local value = payload[name] or field_def.default or 0
         local scale = field_def.scale or 1
-        value = math.floor(value * scale + 0.5)
+        value = math_floor(value * scale + 0.5)
 
         -- Write into temporary buffer
         local writeFunction = mspHelper["write" .. field_def.type]
@@ -470,7 +406,7 @@ function core.buildFullPayload(apiname, payload, api_structure)
             scale = scale / rfsuite.app.utils.decimalInc(field_def.decimals)
         end
 
-        value = math.floor(value * scale + 0.5)
+        value = math_floor(value * scale + 0.5)
 
         local writeFunction = mspHelper["write" .. field_def.type]
         if not writeFunction then error("Unknown type " .. field_def.type) end
@@ -479,9 +415,9 @@ function core.buildFullPayload(apiname, payload, api_structure)
         if field_def.byteorder then writeFunction(tmp, value, field_def.byteorder)
         else writeFunction(tmp, value) end
 
-        for _, b in ipairs(tmp) do table.insert(byte_stream, b) end
+        for _, b in ipairs(tmp) do table_insert(byte_stream, b) end
 
-        utils.log(string.format("[buildFullPayload] Wrote field '%s' = %d", name, value), "debug")
+        utils.log(string_format("[buildFullPayload] Wrote field '%s' = %d", name, value), "debug")
     end
 
     return byte_stream
@@ -500,16 +436,16 @@ function core.prepareStructureData(structure)
         -- Skip if API version doesn't match
         if param.apiVersion and utils.apiVersionCompare("<", param.apiVersion) then goto continue end
 
-        table.insert(filtered, param)
+        table_insert(filtered, param)
 
         if param.mandatory ~= false then
             minBytes = minBytes + get_type_size(param.type)
         end
 
         if param.simResponse then
-            for _, v in ipairs(param.simResponse) do table.insert(simResponse, v) end
+            for _, v in ipairs(param.simResponse) do table_insert(simResponse, v) end
         else
-            for i = 1, get_type_size(param.type) do table.insert(simResponse, 0) end
+            for i = 1, get_type_size(param.type) do table_insert(simResponse, 0) end
         end
 
         ::continue::
@@ -519,9 +455,8 @@ function core.prepareStructureData(structure)
 end
 
 function core.filterByApiVersion(structure)
-    local filtered = {}
-    local f = core.prepareStructureData(structure)
-    return f
+    local filtered = core.prepareStructureData(structure)
+    return filtered
 end
 
 function core.calculateMinBytes(structure)

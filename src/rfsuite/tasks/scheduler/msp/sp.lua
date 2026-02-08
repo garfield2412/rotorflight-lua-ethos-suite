@@ -6,6 +6,7 @@
 local rfsuite = require("rfsuite")
 
 local transport = {}
+local os_clock = os.clock
 
 -- FrSky / F.Port identifiers
 local LOCAL_SENSOR_ID        = 0x0D   -- Our device's sensor ID when sending
@@ -19,18 +20,11 @@ local MSP_STARTFLAG          = (1 << 4) -- Set on start packet
 local in_reply = false
 local expect_seq = nil
 
--- Extract seq / start flag
-local function status_seq(st) return st & 0x0F end
-local function is_start(st) return (st & MSP_STARTFLAG) ~= 0 end
-
 -- Cached sensor handle
 local sensor
 
--- Determine whether a frame is an inbound MSP reply frame
-local function _isInboundReply(sensorId, frameId)
-    return (sensorId == SPORT_REMOTE_SENSOR_ID or sensorId == FPORT_REMOTE_SENSOR_ID)
-       and frameId == REPLY_FRAME_ID
-end
+-- Localize session for faster access
+local session = rfsuite.session
 
 -- Convert a 16-bit dataId + 32-bit value into 6 bytes as per FrSky subframe format
 local function _map_subframe(dataId, value)
@@ -48,7 +42,7 @@ end
 function transport.sportTelemetryPush(sensorId, frameId, dataId, value)
     if not sensor then
         -- Acquire sensor object lazily using the configured module
-        local activeModule = rfsuite.session.telemetryModuleNumber or 0
+        local activeModule = session.telemetryModuleNumber or 0
         sensor = sport.getSensor({module = activeModule, primId = REPLY_FRAME_ID, physId = SPORT_REMOTE_SENSOR_ID})
     end
     return sensor:pushFrame({physId = sensorId, primId = frameId, appId = dataId, value = value})
@@ -57,7 +51,7 @@ end
 -- Pop next telemetry frame
 function transport.sportTelemetryPop()
     if not sensor then
-        local activeModule = rfsuite.session.telemetryModuleNumber or 0
+        local activeModule = session.telemetryModuleNumber or 0
         sensor = sport.getSensor({module = activeModule, primId = REPLY_FRAME_ID, physId = SPORT_REMOTE_SENSOR_ID})
         return nil, nil, nil, nil
     end
@@ -77,33 +71,41 @@ transport.mspSend = function(payload)
 end
 
 -- MSP read/write wrappers
-transport.mspRead = function(cmd)
+function transport.mspRead(cmd)
     return rfsuite.tasks.msp.common.mspSendRequest(cmd, {})
 end
 
-transport.mspWrite = function(cmd, payload)
+function transport.mspWrite(cmd, payload)
     return rfsuite.tasks.msp.common.mspSendRequest(cmd, payload)
 end
 
 -- Poll FrSky telemetry for incoming MSP reply frames
-transport.mspPoll = function()
+function transport.mspPoll()
+    local mspTask = rfsuite.tasks.msp
+    local protoCfg = mspTask and mspTask.protocol or {}
+    local budget = protoCfg.mspTransportPollBudgetSeconds or 0.004
+    local deadline = (budget and budget > 0) and (os_clock() + budget) or nil
+
     while true do
+        if deadline and os_clock() >= deadline then return nil end
         local sensorId, frameId, dataId, value = transport.sportTelemetryPop()
         if not sensorId then return nil end
 
         -- Only process reply frames from recognized MSP sensors
-        if not _isInboundReply(sensorId, frameId) then goto continue end
+        -- Inline _isInboundReply check
+        if not ((sensorId == SPORT_REMOTE_SENSOR_ID or sensorId == FPORT_REMOTE_SENSOR_ID) and frameId == REPLY_FRAME_ID) then
+            goto continue
+        end
 
-        -- Decode incoming 6B subframe -> MSP frame bytes
-        local bytes = _map_subframe(dataId, value)
-        local status = bytes[1] or 0
-        local seq = status_seq(status)
+        -- Decode status byte directly from dataId (low byte)
+        local status = dataId & 0xFF
+        local seq = status & 0x0F
 
         -- Start of reply frame
-        if is_start(status) then
+        if (status & MSP_STARTFLAG) ~= 0 then
             in_reply = true
             expect_seq = seq
-            return bytes
+            return _map_subframe(dataId, value)
 
         -- Continuation frame
         elseif in_reply then
@@ -124,7 +126,7 @@ transport.mspPoll = function()
 
             -- Good continuation frame
             expect_seq = seq
-            return bytes
+            return _map_subframe(dataId, value)
         end
 
         ::continue::
@@ -134,7 +136,8 @@ end
 -- Clear cached sensor so it will be re-acquired
 function transport.reset()
     sensor = nil
+    in_reply = false
+    expect_seq = nil
 end
 
 return transport
-

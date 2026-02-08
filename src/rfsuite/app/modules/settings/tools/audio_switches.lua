@@ -4,6 +4,7 @@
 ]] --
 
 local rfsuite = require("rfsuite")
+local system = system
 
 local config = {}
 local enableWakeup = false
@@ -80,7 +81,7 @@ local function onSaveMenu()
         rfsuite.app.ui.progressDisplaySave(msg:gsub("%?$", "."))
         for key, value in pairs(config) do rfsuite.preferences.switches[key] = value end
         rfsuite.ini.save_ini_file("SCRIPTS:/" .. rfsuite.config.preferences .. "/preferences.ini", rfsuite.preferences)
-        rfsuite.tasks.events.switches.resetSwitchStates()
+        rfsuite.tasks.events.switches.reset()
         rfsuite.app.triggers.closeSave = true
     end
 

@@ -5833,6 +5833,11 @@
         }
       },
       "servos": {
+        "bus": {
+          "english": "BUS Output",
+          "needs_translation": false,
+          "translation": "BUS Output"
+        },
         "center": {
           "english": "Center",
           "needs_translation": false,
@@ -5882,11 +5887,6 @@
           "english": "Enabling servo override...",
           "needs_translation": false,
           "translation": "Enabling servo override..."
-        },
-        "fbus": {
-          "english": "FBUS Output",
-          "needs_translation": false,
-          "translation": "FBUS Output"
         },
         "geometry": {
           "english": "Geometry",
@@ -6017,11 +6017,6 @@
           "english": "Saving data...",
           "needs_translation": false,
           "translation": "Saving data..."
-        },
-        "sbus": {
-          "english": "SBUS Output",
-          "needs_translation": false,
-          "translation": "SBUS Output"
         },
         "scale_negative": {
           "english": "Scale Negative",
@@ -6465,6 +6460,11 @@
           "needs_translation": false,
           "translation": "Log msp data"
         },
+        "txt_mspstatusdialog": {
+          "english": "MSP Activity Display",
+          "needs_translation": false,
+          "translation": "MSP Activity Display"
+        },
         "txt_objectprofiler": {
           "english": "Log dashboard speed",
           "needs_translation": false,
@@ -6499,6 +6499,11 @@
           "english": "Confirm on reload",
           "needs_translation": false,
           "translation": "Confirm on reload"
+        },
+        "txt_save_armed_warning": {
+          "english": "Show disarm-to-save warning",
+          "needs_translation": false,
+          "translation": "Show disarm-to-save warning"
         },
         "txt_save_confirm": {
           "english": "Confirm on save",
