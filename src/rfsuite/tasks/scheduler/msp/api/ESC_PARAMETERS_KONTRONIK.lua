@@ -36,12 +36,12 @@ local MSP_API_STRUCTURE_READ_DATA = {
   {field = "brake", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0},
   {field = "rpm_ctl", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0},
   {field = "how_adj_max_rpm", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, min = 0, max = #how_adj_max_rpm, tableIdxInc = -1, table = how_adj_max_rpm},
-  {field = "max_discharge", type = "U16", apiVersion = 12.07, simResponse = {0, 0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_discharge)@" },
-  {field = "min_input_voltage", type = "U16", apiVersion = 12.07, simResponse = {0, 0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.min_input_voltage)@" },
-  {field = "max_motor_current", type = "U16", apiVersion = 12.07, simResponse = {0, 0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_motor_current)@" },
-  {field = "max_esc_temp", type = "U16", apiVersion = 12.07, simResponse = {0, 0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_esc_temp)@" },
-  {field = "max_bec_temp", type = "U16", apiVersion = 12.07, simResponse = {0, 0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_temp)@" },
-  {field = "max_bec_current", type = "U16", apiVersion = 12.07, simResponse = {0, 0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_current)@" },
+  {field = "max_discharge", type = "U16", apiVersion = 12.07, simResponse = {13, 0}, default = 13, min = 0, max = 50, step = 1,  unit = "Ah", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_discharge)@" },
+  {field = "min_input_voltage", type = "U16", apiVersion = 12.07, simResponse = {184, 11}, default = 3000, min = 1000, max = 100000, step = 100, unit = "mV", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.min_input_voltage)@" },
+  {field = "max_motor_current", type = "U16", apiVersion = 12.07, simResponse = {150, 0}, default = 150, min = 0, max = 500, step = 1, unit = "A", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_motor_current)@" },
+  {field = "max_esc_temp", type = "U16", apiVersion = 12.07, simResponse = {90, 0}, default = 90, min = 0, max = 200, step = 1,  unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_esc_temp)@" },
+  {field = "max_bec_temp", type = "U16", apiVersion = 12.07, simResponse = {90, 0}, default = 90, min = 0, max = 200, step = 1,  unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_temp)@" },
+  {field = "max_bec_current", type = "U16", apiVersion = 12.07, simResponse = {12, 0}, default = 12, min = 0, max = 50, step = 1, unit = "A", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_current)@" },
 }
 -- LuaFormatter on
 
