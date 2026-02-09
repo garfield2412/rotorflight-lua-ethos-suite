@@ -5,10 +5,6 @@
 
 local rfsuite = require("rfsuite")
 local folder = "flrtr"
-local ESC = assert(loadfile("app/modules/esc_motors/tools/escmfg/" .. folder .. "/init.lua"))()
-local mspHeaderBytes = ESC.mspHeaderBytes
-local mspSignature = ESC.mspSignature
-local simulatorResponse = ESC.simulatorResponse
 
 local apidata = {
     api = {
@@ -25,8 +21,6 @@ local apidata = {
     }
 }
 
-local foundEsc = false
-local foundEscDone = false
 
 local function postLoad() rfsuite.app.triggers.closeProgressLoader = true end
 

@@ -8,12 +8,6 @@ local rfsuite = require("rfsuite")
 local config = {}
 local enableWakeup = false
 
-local function sensorNameMap(sensorList)
-    local nameMap = {}
-    for _, sensor in ipairs(sensorList) do nameMap[sensor.key] = sensor.name end
-    return nameMap
-end
-
 local function setFieldEnabled(field, enabled) if field and field.enable then field:enable(enabled) end end
 
 local function openPage(pageIdx, title, script)
@@ -34,9 +28,6 @@ local function openPage(pageIdx, title, script)
     local app = rfsuite.app
     if app.formFields then for i = 1, #app.formFields do app.formFields[i] = nil end end
     if app.formLines then for i = 1, #app.formLines do app.formLines[i] = nil end end
-
-    local eventList = rfsuite.tasks.events.telemetry.eventTable
-    local eventNames = sensorNameMap(rfsuite.tasks.telemetry.listSensors())
 
     local savedEvents = rfsuite.preferences.events or {}
     for k, v in pairs(savedEvents) do config[k] = v end
@@ -156,6 +147,20 @@ local function openPage(pageIdx, title, script)
     setFieldEnabled(rfsuite.app.formFields[becFields.enable], true)
     setFieldEnabled(rfsuite.app.formFields[fuelFields.enable], true)
 
+    local otherEnabled = config.otherSoundCfg == true
+    local otherPanel = form.addExpansionPanel("@i18n(app.modules.settings.otherSoundSettings)@")
+    otherPanel:open(otherEnabled)
+
+    local w = rfsuite.app.lcdWidth
+    local otherModelAnnouncement = otherPanel:addLine("@i18n(app.modules.settings.modelAnnouncement)@")
+
+    formFieldCount = formFieldCount + 1
+    rfsuite.app.formLineCnt = rfsuite.app.formLineCnt + 1
+    rfsuite.app.formFields[formFieldCount] = form.addBooleanField(otherModelAnnouncement, nil, function() return config.otherModelAnnounce == true end, function(val) config.otherModelAnnounce = val end)
+    if rfsuite.app.formFields[formFieldCount].help then
+        rfsuite.app.formFields[formFieldCount]:help("@i18n(app.modules.settings.help_modelAnnouncement)@")
+    end
+
     rfsuite.app.navButtons.save = true
 end
 
@@ -199,4 +204,13 @@ local function event(widget, category, value, x, y)
     end
 end
 
-return {event = event, openPage = openPage, onNavMenu = onNavMenu, onSaveMenu = onSaveMenu, navButtons = {menu = true, save = true, reload = false, tool = false, help = false}, API = {}}
+local function onHelpMenu()
+
+    local helpPath = "app/modules/settings/tools/help.lua"
+    local help = assert(loadfile(helpPath))()
+
+    rfsuite.app.ui.openPageHelp(help.help["audio_events"], "@i18n(app.modules.settings.name)@" .. " / " .. "@i18n(app.modules.settings.audio)@" .. " / " .. "@i18n(app.modules.settings.txt_audio_events)@")
+
+end
+
+return {event = event, openPage = openPage, onNavMenu = onNavMenu, onSaveMenu = onSaveMenu,  onHelpMenu = onHelpMenu, navButtons = {menu = true, save = true, reload = false, tool = false, help = true}, API = {}}
