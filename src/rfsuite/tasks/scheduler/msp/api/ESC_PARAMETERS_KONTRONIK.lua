@@ -20,7 +20,7 @@ local MSP_API_STRUCTURE_READ_DATA = {
   {field = "esc_signature", type="U8", apiVersion=12.07, simResponse={ 75 }, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_signature)@" },
   {field = "esc_command", type = "U8", apiVersion = 12.07, simResponse = {0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_command)@"},
   {field = "esc_model", type = "U128", apiVersion = 12.07, simResponse = {75, 79, 76, 73, 66, 82, 73, 49, 52, 48, 43, 76, 86, 32, 32, 32}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_model)@"},
-  {field = "esc_version", type = "U128", apiVersion = 12.07, simResponse = {50, 48, 48, 65, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_version)@"},
+  {field = "esc_version", type = "U128", apiVersion = 12.07, simResponse = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_version)@"},
   {field = "bec_voltage", type = "U16", apiVersion = 12.07, simResponse = {0, 0}, tableIdxInc = -1, table = bec_voltage, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bec_voltage)@"},
   {field = "rotation", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.rotation)@" },
   {field = "fwd_bckwd", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.fwd_bckwd)@" },
@@ -50,6 +50,7 @@ local MSP_API_STRUCTURE_READ_DATA = {
   {field = "max_esc_temp", type = "U8", apiVersion = 12.07, simResponse = {90}, default = 90, min = 0, max = 200, step = 1,  unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_esc_temp)@" },
   {field = "max_bec_temp", type = "U8", apiVersion = 12.07, simResponse = {95}, default = 95, min = 0, max = 255, step = 1, unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_temp)@" },
   {field = "max_bec_current", type = "U8", apiVersion = 12.07, simResponse = {12}, default = 12, min = 0, max = 50, step = 1, unit = "A", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_current)@" },
+  {field = "act_impulse_length", type = "U16", apiVersion = 12.07, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us"},
 }
 -- LuaFormatter on
 

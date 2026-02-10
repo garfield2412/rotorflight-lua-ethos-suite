@@ -360,9 +360,9 @@
     },
     "ESC_PARAMETERS_KONTRONIK": {
       "flight_Mode": {
-        "english": "Type of Model - load defaults",
+        "english": "Type of Model - loads default Parameters",
         "needs_translation": false,
-        "translation": "Type of Model - load defaults"
+        "translation": "Type of Model - loads default Parameters"
       },
       "battery_type": {
         "english": "Battery Type",
@@ -3126,10 +3126,20 @@
               "needs_translation": false,
               "translation": "Basic"
             },
+            "rc": {
+              "english": "Remote Control",
+              "needs_translation": false,
+              "translation": "Remote Control"
+            },
             "bec_voltage": {
               "english": "BEC Voltage",
               "needs_translation": false,
               "translation": "BEC Voltage"
+            },
+            "act_impulse_length": {
+              "english": "Actual Impulse Length",
+              "needs_translation": false,
+              "translation": "Actual Impulse Length"
             },
             "discharge_limiter_act": {
               "english": "Discharge Limiter",
