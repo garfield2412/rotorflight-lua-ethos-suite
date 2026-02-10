@@ -21,6 +21,9 @@ local apidata = {
     }
 }
 
+
+
+
 local function postLoad()
 
     if rfsuite.app.Page.apidata and rfsuite.tasks.msp.api.apidata.other and rfsuite.tasks.msp.api.apidata.other['ESC_PARAMETERS_KONTRONIK'] then
