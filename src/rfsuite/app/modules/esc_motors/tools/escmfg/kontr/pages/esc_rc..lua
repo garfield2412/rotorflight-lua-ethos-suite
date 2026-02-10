@@ -15,7 +15,7 @@ local apidata = {
         labels = {
             },
         fields = {
-            {t = "@i18n(app.modules.esc_tools.mfg.kontr.act_impulse_length)@", type = 1, mspapi = 1, apikey = "act_impulse_length", disable = true}
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.act_impulse_length)@", type = 1, mspapi = 1, apikey = "act_impulse_length"}
         }
     }
 }
