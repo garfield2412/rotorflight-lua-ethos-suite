@@ -15,7 +15,8 @@ local apidata = {
         labels = {
         },
         fields = {
-            
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.status_bec_v)@", type = 2, mspapi = 1, apikey = "status_bec_v", disable = true},
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.status_bec_a)@", type = 2, mspapi = 1, apikey = "status_bec_a", disable = true}
         }
     }
 }

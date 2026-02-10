@@ -3151,6 +3151,16 @@
               "needs_translation": false,
               "translation": "Basic"
             },
+            "general": {
+              "english": "General",
+              "needs_translation": false,
+              "translation": "General"
+            },
+            "expert": {
+              "english": "Expert Mode",
+              "needs_translation": false,
+              "translation": "Expert Mode"
+            },
             "rc": {
               "english": "Remote Control",
               "needs_translation": false,
@@ -3176,15 +3186,20 @@
               "needs_translation": false,
               "translation": "Brake Position"
             },
-            "bt_disable_motor_renable_button": {
-              "english": "ESC/BT prog. Disable; Re-enable Button",
+            "pgm_bt": {
+              "english": "ESC/Bluetooth Programming options",
               "needs_translation": false,
-              "translation": "ESC/BT prog. Disable; Re-enable Button"
+              "translation": "ESC/Bluetooth Programming options"
+            },
+            "bt_disable_motor_renable_button": {
+              "english": "Prog. Disable; Re-enable Button",
+              "needs_translation": false,
+              "translation": "Prog. Disable; Re-enable Button"
             },
             "bt_disable_motor_renable_motor_stop": {
-              "english": "ESC/BT prog. Disable; Re-enable Motor Stop",
+              "english": "Prog. Disable; Re-enable Motor Stop",
               "needs_translation": false,
-              "translation": "ESC/BT prog. Disable; Re-enable Motor Stop"
+              "translation": "Prog. Disable; Re-enable Motor Stop"
             },
             "act_impulse_length": {
               "english": "Actual Impulse Length",
@@ -3300,6 +3315,11 @@
               "english": "PWM minimum",
               "needs_translation": false,
               "translation": "PWM minimum"
+            },
+            "max_rpm": {
+              "english": "Max RPM",
+              "needs_translation": false,
+              "translation": "Max RPM"
             },
             "slewrate_up": {
               "english": "Slew Rate Up",
