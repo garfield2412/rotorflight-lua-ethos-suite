@@ -51,6 +51,11 @@ local MSP_API_STRUCTURE_READ_DATA = {
   {field = "max_bec_temp", type = "U8", apiVersion = 12.07, simResponse = {95}, default = 95, min = 0, max = 255, step = 1, unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_temp)@" },
   {field = "max_bec_current", type = "U8", apiVersion = 12.07, simResponse = {12}, default = 12, min = 0, max = 50, step = 1, unit = "A", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_current)@" },
   {field = "act_impulse_length", type = "U16", apiVersion = 12.07, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us"},
+  {field = "off_position", type = "U16", apiVersion = 12.07, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.off_position)@" },
+  {field = "max_position", type = "U16", apiVersion = 12.07, simResponse = {148, 7}, default = 1940, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_position)@" },
+  {field = "brake_position", type = "U16", apiVersion = 12.07, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.brake_position)@" },
+  {field = "bt_disable_motor_renable_button", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bt_disable_motor_renable_button)@" },
+  {field = "bt_disable_motor_renable_motor_stop", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bt_disable_motor_renable_motor_stop)@" },
 }
 -- LuaFormatter on
 

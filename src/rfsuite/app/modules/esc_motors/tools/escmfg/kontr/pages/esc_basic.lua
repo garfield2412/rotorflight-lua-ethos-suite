@@ -18,7 +18,6 @@ local apidata = {
         },
         fields = {
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.flight_mode)@", type = 1, mspapi = 1, apikey = "flight_Mode"},
-            {t = "@i18n(app.modules.esc_tools.mfg.kontr.bec_voltage)@", type = 1, mspapi = 1, apikey = "bec_voltage"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.battery_type)@", type = 1,  mspapi = 1, apikey = "battery_type"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.undervoltage_behavior)@", type = 1,  mspapi = 1, apikey = "undervoltage_behavior"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.undervoltage_cell)@", label = "undervoltage1", inline = 1, type = 2,  mspapi = 1, apikey = "undervoltage_cell"},

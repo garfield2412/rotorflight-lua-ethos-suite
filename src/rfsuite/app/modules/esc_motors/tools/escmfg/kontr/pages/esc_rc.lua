@@ -15,7 +15,13 @@ local apidata = {
         labels = {
             },
         fields = {
-            {t = "@i18n(app.modules.esc_tools.mfg.kontr.act_impulse_length)@", type = 1, mspapi = 1, apikey = "act_impulse_length"}
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.act_impulse_length)@", type = 2, mspapi = 1, apikey = "act_impulse_length", disable = true},
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.off_position)@", type = 2, mspapi = 1, apikey = "off_position"},
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.max_position)@", type = 2, mspapi = 1, apikey = "max_position"},
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.brake_position)@", type = 2, mspapi = 1, apikey = "brake_position"},
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.bec_voltage)@", type = 1, mspapi = 1, apikey = "bec_voltage"},
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.bt_disable_motor_renable_button)@", type = 4, mspapi = 1, apikey = "bt_disable_motor_renable_button"},
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.bt_disable_motor_renable_motor_stop)@", type = 4, mspapi = 1, apikey = "bt_disable_motor_renable_motor_stop"}
         }
     }
 }

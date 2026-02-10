@@ -428,6 +428,31 @@
         "english": "(Usually not needed in RF2) Input Main Gear Ratio 1: value x 0.01",
         "needs_translation": false,
         "translation": "(Usually not needed in RF2) Input Main Gear Ratio value x 0.01"
+      },
+      "off_position": {
+              "english": "Off Position",
+              "needs_translation": false,
+              "translation": "Off Position"
+      },
+      "max_position": {
+              "english": "Max Position",
+              "needs_translation": false,
+              "translation": "Max Position"
+      },
+      "brake_position": {
+              "english": "Brake Position",
+              "needs_translation": false,
+              "translation": "Brake Position"
+      },
+      "bt_disable_motor_renable_button": {
+        "english": "Disable at Motor-Start; Renable with Button",
+        "needs_translation": false,
+        "translation": "Disable at Motor-Start; Renable with Button"
+      },
+      "bt_disable_motor_renable_motor_stop": {
+        "english": "Disable at Motor-Start; Renable on Motor Stop",
+        "needs_translation": false,
+        "translation": "Disable at Motor-Start; Renable on Motor Stop"
       }
     },
     "ESC_PARAMETERS_OMP": {
@@ -3135,6 +3160,31 @@
               "english": "BEC Voltage",
               "needs_translation": false,
               "translation": "BEC Voltage"
+            },
+            "off_position": {
+              "english": "Off Position",
+              "needs_translation": false,
+              "translation": "Off Position"
+            },
+            "max_position": {
+              "english": "Max Position",
+              "needs_translation": false,
+              "translation": "Max Position"
+            },
+            "brake_position": {
+              "english": "Brake Position",
+              "needs_translation": false,
+              "translation": "Brake Position"
+            },
+            "bt_disable_motor_renable_button": {
+              "english": "ESC/BT prog. Disable; Re-enable Button",
+              "needs_translation": false,
+              "translation": "ESC/BT prog. Disable; Re-enable Button"
+            },
+            "bt_disable_motor_renable_motor_stop": {
+              "english": "ESC/BT prog. Disable; Re-enable Motor Stop",
+              "needs_translation": false,
+              "translation": "ESC/BT prog. Disable; Re-enable Motor Stop"
             },
             "act_impulse_length": {
               "english": "Actual Impulse Length",
