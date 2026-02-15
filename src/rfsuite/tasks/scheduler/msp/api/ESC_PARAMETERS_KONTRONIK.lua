@@ -10,7 +10,7 @@ local MSP_HEADER_BYTES = 2
 
 local flight_Mode = {"@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_sailplane)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_motorplane)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_helicopter)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_auto)@"}
 local rotation = {"@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_cw)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_ccw)@"}
-local bec_voltage = {"4800mv", "4900mv", "5000mv", "5100mv", "5200mv", "5300mv", "5400mv", "5500mv", "5600mv", "5700mv", "5800mv", "5900mv", "6000mV", "6100mV", "6200mV", "6300mV", "6400mV", "6500mV", "6600mV", "6700mV", "6800mV", "6900mV", "7000mV", "7100mV", "7200mV", "7300mV", "7400mV", "7500mV", "7600mV", "7700mV", "7800mV", "7900mV", "8000mV"}
+--local bec_voltage = {"4800mv", "4900mv", "5000mv", "5100mv", "5200mv", "5300mv", "5400mv", "5500mv", "5600mv", "5700mv", "5800mv", "5900mv", "6000mV", "6100mV", "6200mV", "6300mV", "6400mV", "6500mV", "6600mV", "6700mV", "6800mV", "6900mV", "7000mV", "7100mV", "7200mV", "7300mV", "7400mV", "7500mV", "7600mV", "7700mV", "7800mV", "7900mV", "8000mV"}
 local pole_number = {"2", "4", "6", "8", "10", "12", "14", "16", "18", "20"}
 local battery_type = {"NiCd / NiMH", "LiPo", "LiFePo"}
 local undervoltage_behavior = {"@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_undervoltage_behavior_slow)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_undervoltage_behavior_shut)@"}
@@ -22,7 +22,7 @@ local MSP_API_STRUCTURE_READ_DATA = {
   {field = "esc_model", type = "U128", apiVersion = 12.07, simResponse = {75, 79, 76, 73, 66, 82, 73, 49, 52, 48, 43, 76, 86, 32, 32, 32}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_model)@"},
   {field = "esc_version", type = "U128", apiVersion = 12.07, simResponse = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_version)@"},
   {field = "esc_firmware", type = "U128", apiVersion = 12.07, simResponse = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_firmware)@"},
-  {field = "bec_voltage", type = "U16", apiVersion = 12.07, simResponse = {0, 0}, tableIdxInc = -1, table = bec_voltage, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bec_voltage)@"},
+  {field = "bec_voltage", type = "U16", apiVersion = 12.07, simResponse = {0, 0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bec_voltage)@"},
   {field = "rotation", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.rotation)@" },
   {field = "fwd_bckwd", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.fwd_bckwd)@" },
   {field = "flight_Mode", type = "U8", apiVersion = 12.07, simResponse = { 2 }, default = 2, min = 0, max = #flight_Mode, tableIdxInc = -1, table = flight_Mode, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.flight_Mode)@" },
