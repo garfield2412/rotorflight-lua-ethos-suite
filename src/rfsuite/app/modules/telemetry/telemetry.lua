@@ -176,7 +176,11 @@ local function alertIfTooManySensors()
     form.openDialog({width = nil, title = "@i18n(app.modules.telemetry.name)@", message = "@i18n(app.modules.telemetry.no_more_than_40)@", buttons = buttons, wakeup = function() end, paint = function() end, options = TEXT_LEFT})
 end
 
-local function openPage(pidx, title, script)
+local function openPage(opts)
+
+    local pidx = opts.idx
+    local title = opts.title
+    local script = opts.script
     form.clear()
 
     rfsuite.app.lastIdx = pidx
@@ -287,6 +291,22 @@ local function getDefaultSensors(sensorListFromApi)
         end
     end
     return defaultSensors
+end
+
+local function applyDefaultSensors()
+    local sensorListFromApi = getDefaultSensors(rfsuite.tasks.telemetry.listSensors())
+    local changed = false
+
+    for _, v in pairs(sensorListFromApi) do
+        if config[v] ~= true then
+            config[v] = true
+            changed = true
+        end
+    end
+
+    if changed and rfsuite.app and rfsuite.app.ui and rfsuite.app.ui.markPageDirty then
+        rfsuite.app.ui.markPageDirty()
+    end
 end
 
 -- shallow-copy helper (snapshots tables so API internals can’t mutate our cache)
@@ -425,14 +445,12 @@ local function wakeup()
     end
 
     if setDefaultSensors == true then
-        local sensorListFromApi = getDefaultSensors(rfsuite.tasks.telemetry.listSensors())
-        for _, v in pairs(sensorListFromApi) do config[v] = true end
+        applyDefaultSensors()
         setDefaultSensors = false
     end
 
     if setDefaultSensors == true then
-        local sensorListFromApi = getDefaultSensors(rfsuite.tasks.telemetry.listSensors())
-        for _, v in pairs(sensorListFromApi) do config[v] = true end
+        applyDefaultSensors()
         setDefaultSensors = false
     end
 end

@@ -47,11 +47,13 @@ local userpref_defaults = {
     general = {
         iconsize = 2,
         syncname = false,
+        developer_tools = false,
         gimbalsupression = 0.85,
         txbatt_type = 0,
         hs_loader = 0,
         theme_loader = 1,  
         save_confirm = true,   
+        save_dirty_only = true,
         reload_confirm = true,
         mspstatusdialog = true,
         save_armed_warning = true
@@ -273,7 +275,7 @@ local function init()
     end
 
     local isCompiledCheck = "@i18n(iscompiledcheck)@"
-    if isCompiledCheck ~= "true" then
+    if isCompiledCheck ~= "true" and isCompiledCheck ~= "eurt" then
         system.registerSystemTool(unsupported_i18n())
     else
         register_main_tool()

@@ -28,6 +28,32 @@ local apiCore
 
 local MSP_DEBUG_PLACEHOLDER = "MSP Waiting"
 
+local function resolveScriptFromRules(rules)
+    if type(rules) ~= "table" then return nil end
+    for _, rule in ipairs(rules) do
+        local op = rule.op or rule[1]
+        local ver = rule.ver or rule[2]
+        local script = rule.script or rule[3]
+        if op and ver and script and utils.apiVersionCompare(op, ver) then
+            return script, rule.loaderspeed
+        end
+    end
+    return nil
+end
+
+local function resolvePageScript(page, section)
+    local rules = page.script_by_mspversion or page.scriptByMspVersion
+    if not rules and section then
+        rules = section.script_by_mspversion or section.scriptByMspVersion
+    end
+    if rules then
+        local chosen, speed = resolveScriptFromRules(rules)
+        if chosen then return chosen, speed end
+        if page.script_default then return page.script_default, page.loaderspeed end
+    end
+    return page.script, page.loaderspeed
+end
+
 local function getMspStatusExtras()
     local m = tasks and tasks.msp
     if not m then return nil end
@@ -165,11 +191,11 @@ function ui.progressDisplay(title, message, speed)
     title = title or "@i18n(app.msg_loading)@"
     message = message or "@i18n(app.msg_loading_from_fbl)@"
 
-    if speed then
-        app.dialogs.progressSpeed = true
-    else
-        app.dialogs.progressSpeed = false
+    local speedMult = tonumber(speed)
+    if speedMult == nil then
+        speedMult = (app.loaderSpeed and app.loaderSpeed.DEFAULT) or 1.0
     end
+    app.dialogs.progressSpeed = speedMult
 
     local reachedTimeout = false
 
@@ -189,16 +215,7 @@ function ui.progressDisplay(title, message, speed)
 
             app.dialogs.progress:value(app.dialogs.progressCounter)
 
-            local mult = 1
-            if app.dialogs.progressSpeed then 
-                if speed and (type(speed) == "number" or type(speed) == "float") then
-                    mult = speed
-                elseif type(speed) == "boolean" and speed == true then
-                    mult = 2
-                else
-                    mult = 1.5 
-                end
-            end
+            local mult = app.dialogs.progressSpeed or 1.0
 
             local isProcessing = (app.Page and app.Page.apidata and app.Page.apidata.apiState and app.Page.apidata.apiState.isProcessing) or false
             local apiV = tostring(session.apiVersion)
@@ -215,7 +232,7 @@ function ui.progressDisplay(title, message, speed)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.triggers.closeProgressLoader = false
-                    app.dialogs.progressSpeed = false
+                    app.dialogs.progressSpeed = nil
                     app.triggers.closeProgressLoaderNoisProcessed = false
                     return
                 end
@@ -227,7 +244,7 @@ function ui.progressDisplay(title, message, speed)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.triggers.closeProgressLoader = false
-
+                    app.dialogs.progressSpeed = nil
                 end
             elseif app.triggers.closeProgressLoader and app.triggers.closeProgressLoaderNoisProcessed then
                 if app.dialogs.progressIsWait then
@@ -236,7 +253,7 @@ function ui.progressDisplay(title, message, speed)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.triggers.closeProgressLoader = false
-                    app.dialogs.progressSpeed = false
+                    app.dialogs.progressSpeed = nil
                     app.triggers.closeProgressLoaderNoisProcessed = false
                     return
                 end
@@ -248,7 +265,7 @@ function ui.progressDisplay(title, message, speed)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.triggers.closeProgressLoader = false
-                    app.dialogs.progressSpeed = false
+                    app.dialogs.progressSpeed = nil
                     app.triggers.closeProgressLoaderNoisProcessed = false
 
                 end
@@ -264,7 +281,7 @@ function ui.progressDisplay(title, message, speed)
                 app.Page = app.PageTmp
                 app.PageTmp = nil
                 app.dialogs.progressCounter = 0
-                app.dialogs.progressSpeed = false
+                app.dialogs.progressSpeed = nil
                 app.dialogs.progressDisplay = false
 
                 ui.disableAllFields()
@@ -280,7 +297,7 @@ function ui.progressDisplay(title, message, speed)
                     ui.clearProgressDialog(app.dialogs.progress)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
-                    app.dialogs.progressSpeed = false
+                    app.dialogs.progressSpeed = nil
 
                 end
             end
@@ -340,6 +357,7 @@ function ui.progressDisplaySave(message)
                     app.dialogs.saveDisplay = false
                     app.dialogs.saveWatchDog = nil
                     app.dialogs.save:close()
+                    ui.setPageDirty(false)
                     ui.clearProgressDialog(app.dialogs.save)
                     return
                 end
@@ -350,12 +368,14 @@ function ui.progressDisplaySave(message)
                     app.dialogs.saveDisplay = false
                     app.dialogs.saveWatchDog = nil
                     app.dialogs.save:close()
+                    ui.setPageDirty(false)
                     ui.clearProgressDialog(app.dialogs.save)
 
                 end
             elseif tasks.msp.mspQueue:isProcessed() then
                 if app.dialogs.saveIsWait then
                     app.dialogs.save:close()
+                    ui.setPageDirty(false)
                     ui.clearProgressDialog(app.dialogs.save)
                     app.dialogs.saveDisplay = false
                     app.dialogs.saveProgressCounter = 0
@@ -366,6 +386,7 @@ function ui.progressDisplaySave(message)
                 app.dialogs.saveProgressCounter = app.dialogs.saveProgressCounter + 15
                 if app.dialogs.saveProgressCounter >= 100 then
                     app.dialogs.save:close()
+                    ui.setPageDirty(false)
                     ui.clearProgressDialog(app.dialogs.save)
                     app.dialogs.saveDisplay = false
                     app.dialogs.saveProgressCounter = 0
@@ -707,13 +728,17 @@ function ui.openMainMenu()
             paint = function() end,
             press = function()
                 preferences.menulastselected["mainmenu"] = pidx
-                local speed = false
-                if pvalue.loaderspeed then speed = true end
-                app.ui.progressDisplay(nil, nil, speed)
+                local speed = tonumber(pvalue.loaderspeed) or (app.loaderSpeed and app.loaderSpeed.DEFAULT) or 1.0
                 if pvalue.module then
                     app.isOfflinePage = true
-                    app.ui.openPage(pidx, pvalue.title, pvalue.module .. "/" .. pvalue.script)
+                    local script, speedOverride = resolvePageScript(pvalue)
+                    if speedOverride ~= nil then
+                        speed = tonumber(speedOverride) or (app.loaderSpeed and app.loaderSpeed[speedOverride]) or speed
+                    end
+                    app.ui.progressDisplay(nil, nil, speed)
+                    app.ui.openPage({idx = pidx, title = pvalue.title, script = pvalue.module .. "/" .. script})
                 else
+                    app.ui.progressDisplay(nil, nil, speed)
                     app.ui.openMainMenuSub(pvalue.id)
                 end
             end
@@ -821,11 +846,14 @@ function ui.openMainMenuSub(activesection)
                             paint = function() end,
                             press = function()
                                 preferences.menulastselected[activesection] = pidx
-                                local speed = false
-                                if page.loaderspeed or section.loaderspeed then speed = true end
-                                app.ui.progressDisplay(nil, nil, speed)
+                                local speed = tonumber(page.loaderspeed or section.loaderspeed) or (app.loaderSpeed and app.loaderSpeed.DEFAULT) or 1.0
                                 app.isOfflinePage = offline
-                                app.ui.openPage(pidx, page.title, page.folder .. "/" .. page.script)
+                                local script, speedOverride = resolvePageScript(page, section)
+                                if speedOverride ~= nil then
+                                    speed = tonumber(speedOverride) or (app.loaderSpeed and app.loaderSpeed[speedOverride]) or speed
+                                end
+                                app.ui.progressDisplay(nil, nil, speed)
+                                app.ui.openPage({idx = pidx, title = page.title, script = page.folder .. "/" .. script})
                             end
                         })
 
@@ -911,6 +939,73 @@ function ui._prepareFieldLine(f, radioText)
     return posField
 end
 
+function ui._shouldManageDirtySave()
+    if app.Page.disableSaveUntilDirty == false then return false end
+    local pref = preferences and preferences.general and preferences.general.save_dirty_only
+    if pref == false or pref == "false" then return false end
+    local save = app.formNavigationFields and app.formNavigationFields.save
+    return save and save.enable
+end
+
+function ui.setPageDirty(isDirty)
+    app.pageDirty = isDirty and true or false
+    local save = app.formNavigationFields and app.formNavigationFields.save
+    if save and save.enable then
+        if app.Page and app.Page.canSave then
+            save:enable(app.Page.canSave(app.Page) == true)
+            return
+        end
+        if ui._shouldManageDirtySave() then
+            save:enable(app.pageDirty)
+        end
+    end
+end
+
+function ui.markPageDirty()
+    if app.pageDirty then return end
+    ui.setPageDirty(true)
+end
+
+function ui._installDirtyCallbackWrappers()
+    if ui._dirtyWrappersInstalled then return end
+    if not form then return end
+
+    local function wrapSetter(methodName)
+        local original = form[methodName]
+        if type(original) ~= "function" then return end
+        form[methodName] = function(...)
+            local argc = select("#", ...)
+            local args = {...}
+            local setterIdx = nil
+            for i = argc, 1, -1 do
+                if type(args[i]) == "function" then
+                    setterIdx = i
+                    break
+                end
+            end
+            if setterIdx then
+                local setter = args[setterIdx]
+                args[setterIdx] = function(...)
+                    ui.markPageDirty()
+                    return setter(...)
+                end
+            end
+            return original(table.unpack(args, 1, argc))
+        end
+    end
+
+    wrapSetter("addBooleanField")
+    wrapSetter("addChoiceField")
+    wrapSetter("addNumberField")
+    wrapSetter("addTextField")
+    wrapSetter("addSourceField")
+    wrapSetter("addSensorField")
+    wrapSetter("addColorField")
+    wrapSetter("addSwitchField")
+
+    ui._dirtyWrappersInstalled = true
+end
+
 function ui.fieldBoolean(i,lf)
     local page = app.Page
     local fields = page and page.apidata and page.apidata.formdata.fields or lf
@@ -940,6 +1035,7 @@ function ui.fieldBoolean(i,lf)
     end
 
     formFields[i] = form.addBooleanField(formLines[app.formLineCnt], posField, function() return decode() end, function(valueBool)
+        ui.markPageDirty()
         local value = encode(valueBool == true)
         if f.postEdit then f.postEdit(page, value) end
         if f.onChange then f.onChange(page, value) end
@@ -980,6 +1076,7 @@ function ui.fieldChoice(i,lf)
         if not active then return nil end
         return app.utils.getFieldValue(active)
     end, function(value)
+        ui.markPageDirty()
         if f.postEdit then f.postEdit(page, value) end
         if f.onChange then f.onChange(page, value) end
         f.value = app.utils.saveFieldValue(fields[i], value)
@@ -1022,6 +1119,7 @@ function ui.fieldSlider(i,lf)
         end
         return app.utils.getFieldValue(fields[i])
     end, function(value)
+        ui.markPageDirty()
         if f.postEdit then f.postEdit(page) end
         if f.onChange then f.onChange(page) end
         f.value = app.utils.saveFieldValue(fields[i], value)
@@ -1072,6 +1170,7 @@ function ui.fieldNumber(i,lf)
         if not active then return nil end
         return app.utils.getFieldValue(active)
     end, function(value)
+        ui.markPageDirty()
         if f.postEdit then f.postEdit(page) end
         if f.onChange then f.onChange(page) end
         f.value = app.utils.saveFieldValue(page.apidata.formdata.fields[i], value)
@@ -1139,6 +1238,7 @@ function ui.fieldSource(i,lf)
         if not active then return nil end
         return app.utils.getFieldValue(active)
     end, function(value)
+        ui.markPageDirty()
         if f.postEdit then f.postEdit(page) end
         if f.onChange then f.onChange(page) end
         f.value = app.utils.saveFieldValue(page.apidata.formdata.fields[i], value)
@@ -1182,6 +1282,7 @@ function ui.fieldSensor(i,lf)
         if not active then return nil end
         return app.utils.getFieldValue(active)
     end, function(value)
+        ui.markPageDirty()
         if f.postEdit then f.postEdit(page) end
         if f.onChange then f.onChange(page) end
         f.value = app.utils.saveFieldValue(page.apidata.formdata.fields[i], value)
@@ -1230,6 +1331,7 @@ function ui.fieldColor(i,lf)
             return color
         end
     end, function(value)
+        ui.markPageDirty()
         if f.postEdit then f.postEdit(page) end
         if f.onChange then f.onChange(page) end
         f.value = app.utils.saveFieldValue(page.apidata.formdata.fields[i], value)
@@ -1273,6 +1375,7 @@ function ui.fieldSwitch(i,lf)
         if not active then return nil end
         return app.utils.getFieldValue(active)
     end, function(value)
+        ui.markPageDirty()
         if f.postEdit then f.postEdit(page) end
         if f.onChange then f.onChange(page) end
         f.value = app.utils.saveFieldValue(page.apidata.formdata.fields[i], value)
@@ -1321,6 +1424,7 @@ function ui.fieldText(i,lf)
         if not active then return nil end
         return app.utils.getFieldValue(active)
     end, function(value)
+        ui.markPageDirty()
         if f.postEdit then f.postEdit(page) end
         if f.onChange then f.onChange(page) end
         f.value = app.utils.saveFieldValue(fields[i], value)
@@ -1384,7 +1488,7 @@ function ui.fieldHeader(title)
     app.ui.navigationButtons(w - 5, radio.linePaddingTop, buttonW, buttonH)
 end
 
-function ui.openPageRefresh(idx, title, script, extra1, extra2, extra3, extra5, extra6)
+function ui.openPageRefresh(opts)
     app.triggers.isReady = false
 end
 
@@ -1409,9 +1513,21 @@ local function getHelpData(section)
 end
 
 
-function ui.openPage(idx, title, script, extra1, extra2, extra3, extra5, extra6)
+function ui.openPage(opts)
+
+    if type(opts) ~= "table" then
+        error("ui.openPage expects a table")
+    end
+
+    local idx = opts.idx
+    local title = opts.title
+    local script = opts.script
+    if not script then
+        error("ui.openPage requires opts.script")
+    end
 
     utils.reportMemoryUsage("ui.openPage: " .. script, "start")
+    ui._installDirtyCallbackWrappers()
 
     -- Ensure previous page releases resources before loading a new one.
     ui.cleanupCurrentPage()
@@ -1431,14 +1547,22 @@ function ui.openPage(idx, title, script, extra1, extra2, extra3, extra5, extra6)
     app.fieldHelpTxt = helpData and helpData.fields or nil
 
     if app.Page.openPage then
+        app._pageUsesCustomOpen = true
 
         utils.reportMemoryUsage("app.Page.openPage: " .. script, "start")
 
-        app.Page.openPage(idx, title, script, extra1, extra2, extra3, extra5, extra6)
+        app.Page.openPage(opts)
+        if ui._shouldManageDirtySave() and app.Page.disableSaveUntilDirty ~= false and not app.Page.canSave then
+            app.Page.canSave = function()
+                return app.pageDirty == true
+            end
+        end
+        ui.setPageDirty(false)
         collectgarbage('collect')
         utils.reportMemoryUsage("app.Page.openPage: " .. script, "end")
         return
     end
+    app._pageUsesCustomOpen = false
 
     app.lastIdx = idx
     app.lastTitle = title
@@ -1565,6 +1689,9 @@ function ui.navigationButtons(x, y, w, h)
                 end
             end
         })
+        if ui._shouldManageDirtySave() then
+            ui.setPageDirty(false)
+        end
     end
 
     if navButtons.reload == true then
@@ -2000,6 +2127,14 @@ function ui.saveSettings()
     local log = utils.log
 
     if app.pageState == app.pageStatus.saving then return end
+    if not (app.Page and app.Page.apidata and app.Page.apidata.formdata and app.Page.apidata.formdata.fields and app.Page.apidata.api) then
+        log("saveSettings called without valid apidata; skipping.", "info")
+        app.pageState = app.pageStatus.display
+        app.triggers.isSaving = false
+        app.triggers.closeSaveFake = true
+        app.triggers.saveFailed = true
+        return
+    end
 
     app.pageState = app.pageStatus.saving
     app.saveTS = osClock()
@@ -2012,6 +2147,7 @@ function ui.saveSettings()
 
     local totalRequests = #apiList
     local completedRequests = 0
+    local enqueueFailures = 0
 
     app.Page.apidata.apiState.isProcessing = true
 
@@ -2033,9 +2169,16 @@ function ui.saveSettings()
 
             if completedRequests == totalRequests then
                 log("All API requests have been completed!", "debug")
-                if app.Page.postSave then app.Page.postSave(app.Page) end
                 app.Page.apidata.apiState.isProcessing = false
-                app.utils.settingsSaved()
+                if enqueueFailures > 0 or app.triggers.saveFailed then
+                    app.pageState = app.pageStatus.display
+                    app.triggers.closeSaveFake = true
+                    app.triggers.isSaving = false
+                else
+                    ui.setPageDirty(false)
+                    if app.Page.postSave then app.Page.postSave(app.Page) end
+                    app.utils.settingsSaved()
+                end
             end
         end)
 
@@ -2086,10 +2229,24 @@ function ui.saveSettings()
             end
         end
 
+        local ok, reason
         if payload then
-            API.write(payload)
+            ok, reason = API.write(payload)
         else
-            API.write()
+            ok, reason = API.write()
+        end
+
+        if not ok then
+            enqueueFailures = enqueueFailures + 1
+            completedRequests = completedRequests + 1
+            app.triggers.saveFailed = true
+            log("API " .. apiNAME .. " enqueue rejected: " .. tostring(reason), "info")
+            if completedRequests == totalRequests then
+                app.Page.apidata.apiState.isProcessing = false
+                app.pageState = app.pageStatus.display
+                app.triggers.closeSaveFake = true
+                app.triggers.isSaving = false
+            end
         end
 
         utils.reportMemoryUsage("ui.saveSettings " .. apiNAME, "end")
@@ -2099,16 +2256,34 @@ function ui.saveSettings()
 end
 
 function ui.rebootFc()
+    local armflags = tasks and tasks.telemetry and tasks.telemetry.getSensor and tasks.telemetry.getSensor("armflags")
+    local armedByFlags = (armflags == 1 or armflags == 3)
+    if (session and session.isArmed) or armedByFlags then
+        utils.log("Blocked reboot while armed", "info")
+        app.pageState = app.pageStatus.display
+        app.triggers.closeSaveFake = true
+        app.triggers.isSaving = false
+        app.triggers.showSaveArmedWarning = true
+        return false, "armed_blocked"
+    end
 
     app.pageState = app.pageStatus.rebooting
-    tasks.msp.mspQueue:add({
+    local ok, reason = tasks.msp.mspQueue:add({
         command = 68,
+        uuid = "ui.reboot",
         processReply = function(self, buf)
             app.utils.invalidatePages()
             utils.onReboot()
         end,
         simulatorResponse = {}
     })
+    if not ok then
+        utils.log("Reboot enqueue rejected: " .. tostring(reason), "info")
+        app.pageState = app.pageStatus.display
+        app.triggers.closeSaveFake = true
+        app.triggers.isSaving = false
+    end
+    return ok, reason
 end
 
 function ui.adminStatsOverlay()

@@ -53,7 +53,11 @@ local function postLoad(self)
     activateWakeup = true
 end
 
-local function openPage(idx, title, script)
+local function openPage(opts)
+
+    local idx = opts.idx
+    local title = opts.title
+    local script = opts.script
 
     rfsuite.app.uiState = rfsuite.app.uiStatus.pages
     rfsuite.app.triggers.isReady = false
@@ -120,6 +124,7 @@ local function openPage(idx, title, script)
             end
             return rfsuite.app.utils.getFieldValue(rfsuite.app.Page.apidata.formdata.fields[i])
         end, function(value)
+            rfsuite.app.ui.markPageDirty()
             if f.postEdit then f.postEdit(rfsuite.app.Page) end
             if f.onChange then f.onChange(rfsuite.app.Page) end
 
@@ -127,6 +132,13 @@ local function openPage(idx, title, script)
         end)
     end
 
+    rfsuite.app.ui.setPageDirty(false)
+end
+
+local function canSave()
+    local pref = rfsuite.preferences and rfsuite.preferences.general and rfsuite.preferences.general.save_dirty_only
+    if pref == false or pref == "false" then return true end
+    return rfsuite.app.pageDirty == true
 end
 
 local function wakeup()
@@ -140,4 +152,4 @@ local function wakeup()
     end
 end
 
-return {apidata = apidata, title = "@i18n(app.modules.pids.name)@", reboot = false, eepromWrite = true, refreshOnProfileChange = true, postLoad = postLoad, openPage = openPage, wakeup = wakeup, API = {}}
+return {apidata = apidata, title = "@i18n(app.modules.pids.name)@", reboot = false, eepromWrite = true, refreshOnProfileChange = true, postLoad = postLoad, openPage = openPage, wakeup = wakeup, canSave = canSave, API = {}}

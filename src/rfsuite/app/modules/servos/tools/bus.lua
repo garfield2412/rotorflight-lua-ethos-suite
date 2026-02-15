@@ -14,6 +14,8 @@ local triggerOverRideAll = false
 local lastServoCountTime = os.clock()
 
 local busServoCount = 16    -- how many bus servos we display
+-- Index translation for BUS read/write MSP commands is handled in `bus_tool.lua`.
+-- This page only controls BUS servo list UI and navigation.
 
 local function writeEeprom()
 
@@ -100,7 +102,11 @@ local function swashMixerType()
     return txt
 end
 
-local function openPage(pidx, title, script)
+local function openPage(opts)
+
+    local pidx = opts.idx
+    local title = opts.title
+    local script = opts.script
 
     buildServoTable()
 
@@ -111,7 +117,7 @@ local function openPage(pidx, title, script)
 
     form.clear()
 
-    rfsuite.app.lastIdx = idx
+    rfsuite.app.lastIdx = pidx
     rfsuite.app.lastTitle = title
     rfsuite.app.lastScript = script
 
@@ -132,7 +138,7 @@ local function openPage(pidx, title, script)
     local buttonW = 100
     local x = windowWidth - buttonW - 10
 
-    rfsuite.app.ui.fieldHeader("@i18n(app.modules.servos.name)@")
+    rfsuite.app.ui.fieldHeader("@i18n(app.modules.servos.name)@ / @i18n(app.modules.servos.bus)@ ")
 
     local buttonW
     local buttonH
@@ -215,7 +221,7 @@ local function openPage(pidx, title, script)
                     rfsuite.currentServoIndex = pidx
                     rfsuite.app.ui.progressDisplay()
 
-                    rfsuite.app.ui.openPage(pidx, pvalue.title, "servos/tools/bus_tool.lua", servoTable)
+                    rfsuite.app.ui.openPage({idx = pidx, title = pvalue.title, script = "servos/tools/bus_tool.lua", servoTable = servoTable})
                 end
             })
 
@@ -358,7 +364,7 @@ local function onNavMenu(self)
         rfsuite.app.triggers.closeProgressLoader = true
     end
 
-     rfsuite.app.ui.openPage(pidx, "@i18n(app.modules.servos.name)@", "servos/servos.lua")
+     rfsuite.app.ui.openPage({idx = pidx, title = "@i18n(app.modules.servos.name)@", script = "servos/servos.lua"})
 
 end
 

@@ -10,7 +10,9 @@
 --   - pages: list of module folders (or override tables) to build a submenu.
 --   - id: section identifier used by openMainMenuSub (required for submenu sections).
 --   - image: icon path used on the main menu.
---   - loaderspeed: show fast loader when opening.
+--   - loaderspeed: loader speed multiplier (float) or alias ("FAST", "DEFAULT", "SLOW").
+--   - script_by_mspversion: list of {op, version, script} overrides for MSP API.
+--   - script_default: fallback script if no version rule matches.
 --   - offline: allow entry when FC is not connected.
 --   - bgtask: allow entry while background task is active.
 --   - newline: start a new header group (UI layout).
@@ -29,7 +31,11 @@ return {
         {
             title = "@i18n(app.modules.profile_governor.name)@",
             entry = "profile_governor",
-            image = "app/modules/profile_governor/governor.png"
+            image = "app/modules/profile_governor/governor.png",
+            script_by_mspversion = {
+                {">=", "12.09", "governor.lua", loaderspeed = "FAST"},
+                {"<", "12.09", "governor_legacy.lua", loaderspeed = "SLOW"}
+            }
         },
         {
             title = "@i18n(app.modules.profile_tailrotor.name)@",
@@ -41,7 +47,7 @@ return {
             title = "@i18n(app.menu_section_advanced)@",
             id = "advanced",
             image = "app/gfx/advanced.png",
-            loaderspeed = true,
+            loaderspeed = "FAST",
             pages = {
                 "profile_pidcontroller",
                 "profile_pidbandwidth",
@@ -56,18 +62,27 @@ return {
             title = "@i18n(app.menu_section_hardware)@",
             id = "hardware",
             image = "app/gfx/hardware.png",
-            loaderspeed = true,
+            loaderspeed = "FAST",
             pages = {
                 "servos",
                 "mixer",
                 "esc_motors",
                 "accelerometer",
+                "alignment",
                 "telemetry",
                 "filters",
                 "power",
                 "radio_config",
                 "stats",
-                "governor"
+                "beepers",
+                "blackbox",
+                "failsafe",
+                "adjustments",
+                {"governor", script_by_mspversion = {
+                    {">=", "12.09", "governor.lua", loaderspeed = "FAST"},
+                    {"<", "12.09", "governor_legacy.lua", loaderspeed = "SLOW"}
+                }},
+                "modes"
             }
         },
         {
@@ -77,8 +92,7 @@ return {
             newline = true,
             pages = {
                 "copyprofiles",
-                "profile_select",
-                "msp_exp"
+                "profile_select"
             }
         },
         -- Single entries open directly from the main menu.
@@ -86,7 +100,7 @@ return {
             title = "@i18n(app.modules.logs.name)@",
             entry = "logs",
             image = "app/modules/logs/gfx/logs.png",
-            loaderspeed = true,
+            loaderspeed = "FAST",
             offline = true
         },
         {
@@ -101,6 +115,12 @@ return {
             image = "app/modules/diagnostics/diagnostics.png",
             bgtask = true,
             offline = true
+        },
+        {
+            title = "@i18n(app.modules.settings.txt_developer)@",
+            entry = "developer",
+            image = "app/modules/developer/developer.png",
+            developer = true
         }
     }
 }

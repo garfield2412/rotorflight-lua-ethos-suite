@@ -25,20 +25,20 @@ local function writeEeprom()
 end
 
 local function buildServoTable()
+    servoTable = {}
+    servoTable['sections'] = {}
 
-    -- calculate servo count based on bus enabled or not
-    if rfsuite.session.servoBusEnabled == nil or rfsuite.session.servoBusEnabled == false then
-        pwmServoCount = rfsuite.session.servoCount
-    else    
-        if rfsuite.utils.apiVersionCompare(">=", "12.09") then
-            if system.getVersion().simulation == true then
-                pwmServoCount = rfsuite.session.servoCount
-            else
-                pwmServoCount = rfsuite.session.servoCount - busServoOffset
-            end
-        else
-            pwmServoCount = rfsuite.session.servoCount
-        end
+    local totalServoCount = tonumber(rfsuite.session.servoCount or 0) or 0
+    pwmServoCount = totalServoCount
+
+    -- On some targets/API variants servoCount already excludes BUS outputs.
+    -- Only subtract BUS offset when the total clearly includes those outputs.
+    if rfsuite.session.servoBusEnabled == true and rfsuite.utils.apiVersionCompare(">=", "12.09") and not system.getVersion().simulation and totalServoCount > busServoOffset then
+        pwmServoCount = totalServoCount - busServoOffset
+    end
+
+    if pwmServoCount < 0 then
+        pwmServoCount = 0
     end
 
     for i = 1, pwmServoCount do
@@ -116,7 +116,11 @@ local function swashMixerType()
     return txt
 end
 
-local function openPage(pidx, title, script)
+local function openPage(opts)
+
+    local pidx = opts.idx
+    local title = opts.title
+    local script = opts.script
 
     buildServoTable()
 
@@ -127,7 +131,7 @@ local function openPage(pidx, title, script)
 
     form.clear()
 
-    rfsuite.app.lastIdx = idx
+    rfsuite.app.lastIdx = pidx
     rfsuite.app.lastTitle = title
     rfsuite.app.lastScript = script
 
@@ -148,7 +152,7 @@ local function openPage(pidx, title, script)
     local buttonW = 100
     local x = windowWidth - buttonW - 10
 
-    rfsuite.app.ui.fieldHeader("@i18n(app.modules.servos.name)@")
+    rfsuite.app.ui.fieldHeader("@i18n(app.modules.servos.name)@ / @i18n(app.modules.servos.pwm)@")
 
     local buttonW
     local buttonH
@@ -231,7 +235,7 @@ local function openPage(pidx, title, script)
                     rfsuite.currentServoIndex = pidx
                     rfsuite.app.ui.progressDisplay()
 
-                    rfsuite.app.ui.openPage(pidx, pvalue.title, "servos/tools/pwm_tool.lua", servoTable)
+                    rfsuite.app.ui.openPage({idx = pidx, title = pvalue.title, script = "servos/tools/pwm_tool.lua", servoTable = servoTable})
                 end
             })
 
@@ -374,7 +378,7 @@ local function onNavMenu(self)
         rfsuite.app.triggers.closeProgressLoader = true
     end
 
-     rfsuite.app.ui.openPage(pidx, "@i18n(app.modules.servos.name)@", "servos/servos.lua")
+     rfsuite.app.ui.openPage({idx = pidx, title = "@i18n(app.modules.servos.name)@", script = "servos/servos.lua"})
 
 end
 

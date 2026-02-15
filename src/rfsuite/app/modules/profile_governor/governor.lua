@@ -14,10 +14,13 @@ local S_PAGES = {
 local enableWakeup = false
 local prevConnectedState = nil
 local initTime = os.clock()
-local governorDisabledMsg = false
 local app = rfsuite.app
 
-local function openPage(pidx, title, script)
+local function openPage(opts)
+
+    local pidx = opts.idx
+    local title = opts.title
+    local script = opts.script
 
     rfsuite.tasks.msp.protocol.mspIntervalOveride = nil
 
@@ -26,7 +29,7 @@ local function openPage(pidx, title, script)
 
     form.clear()
 
-    rfsuite.app.lastIdx = idx
+    rfsuite.app.lastIdx = pidx
     rfsuite.app.lastTitle = title
     rfsuite.app.lastScript = script
 
@@ -53,15 +56,6 @@ local function openPage(pidx, title, script)
     local x = windowWidth - buttonW - 10
 
     rfsuite.app.ui.fieldHeader("@i18n(app.modules.governor.name)@")
-
-    if rfsuite.session.governorMode == 0 then
-        if governorDisabledMsg == false then
-            governorDisabledMsg = true
-
-            rfsuite.app.formLines[#rfsuite.app.formLines + 1] = form.addLine("@i18n(app.modules.profile_governor.disabled_message)@")
-
-        end
-    end
 
     local buttonW
     local buttonH
@@ -129,7 +123,7 @@ local function openPage(pidx, title, script)
                 rfsuite.preferences.menulastselected["profile_governor"] = pidx
                 rfsuite.app.ui.progressDisplay()
                 local name = "@i18n(app.modules.governor.name)@" .. " / " .. pvalue.name
-                rfsuite.app.ui.openPage(pidx, name, "profile_governor/tools/" .. pvalue.script)
+                rfsuite.app.ui.openPage({idx = pidx, title = name, script = "profile_governor/tools/" .. pvalue.script})
             end
         })
 
@@ -176,15 +170,16 @@ local function wakeup()
     end
 
 
-    -- enable the buttons once we have servo info
+    -- update button enabled state once governor mode is known
     if rfsuite.session.governorMode ~= nil then
+        local buttonsEnabled = rfsuite.session.governorMode ~= 0
         for i, v in pairs(rfsuite.app.formFields) do
             if v.enable then
-                v:enable(true)
+                v:enable(buttonsEnabled)
             end    
         end
 
-        if not rfsuite.app._profile_governor_focused then
+        if buttonsEnabled and not rfsuite.app._profile_governor_focused then
             rfsuite.app._profile_governor_focused = true
             local idx = tonumber(rfsuite.preferences.menulastselected["profile_governor"]) or 1
             local btn = rfsuite.app.formFields and rfsuite.app.formFields[idx] or nil

@@ -56,6 +56,9 @@ local function saveData()
         -- EEPROM commit
         local EAPI = tasks.msp.api.load("EEPROM_WRITE")
         EAPI.setCompleteHandler(function()
+            if app and app.ui and app.ui.setPageDirty then
+                app.ui.setPageDirty(false)
+            end
             app.triggers.closeProgressLoader = true
         end)
         EAPI.write()
@@ -112,7 +115,11 @@ local function loadData()
 end
 
 
-local function openPage(idx, title, script)
+local function openPage(opts)
+
+    local idx = opts.idx
+    local title = opts.title
+    local script = opts.script
 
     app.uiState = app.uiStatus.pages
     app.triggers.isReady = false
@@ -227,14 +234,14 @@ end
 local function event(widget, category, value, x, y)
 
     if category == EVT_CLOSE and value == 0 or value == 35 then
-        app.ui.openPage(pidx, title, "governor/governor.lua")
+        app.ui.openPage({idx = pidx, title = title, script = "governor/governor.lua"})
         return true
     end
 end
 
 local function onNavMenu()
     app.ui.progressDisplay()
-    app.ui.openPage(pidx, title, "governor/governor.lua")
+    app.ui.openPage({idx = pidx, title = title, script = "governor/governor.lua"})
     return true
 end
 

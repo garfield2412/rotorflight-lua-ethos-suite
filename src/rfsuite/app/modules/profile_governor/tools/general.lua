@@ -65,9 +65,7 @@ local function wakeup()
                 rfsuite.app.formNavigationFields['save']:enable(false)
 
                 rfsuite.app.formNavigationFields['reload']:enable(false)
-
-                rfsuite.app.formLines[#rfsuite.app.formLines + 1] = form.addLine("@i18n(app.modules.profile_governor.disabled_message)@")
-
+    
             end
         end
 
@@ -94,14 +92,14 @@ end
 local function event(widget, category, value, x, y)
 
     if category == EVT_CLOSE and value == 0 or value == 35 then
-        rfsuite.app.ui.openPage(pidx, title, "profile_governor/governor.lua")
+        rfsuite.app.ui.openPage({idx = pidx, title = title, script = "profile_governor/governor.lua"})
         return true
     end
 end
 
 local function onNavMenu()
     rfsuite.app.ui.progressDisplay()
-    rfsuite.app.ui.openPage(pidx, title, "profile_governor/governor.lua")
+    rfsuite.app.ui.openPage({idx = pidx, title = title, script = "profile_governor/governor.lua"})
     return true
 end
 

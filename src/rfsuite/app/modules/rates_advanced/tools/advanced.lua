@@ -76,7 +76,11 @@ local function rightAlignText(width, text)
     end
 end
 
-local function openPage(idx, title, script)
+local function openPage(opts)
+
+    local idx = opts.idx
+    local title = opts.title
+    local script = opts.script
 
     rfsuite.app.uiState = rfsuite.app.uiStatus.pages
     rfsuite.app.triggers.isReady = false
@@ -167,6 +171,7 @@ local function openPage(idx, title, script)
                 end
                 return rfsuite.app.utils.getFieldValue(rfsuite.app.Page.apidata.formdata.fields[i])
             end, function(value)
+                rfsuite.app.ui.markPageDirty()
                 if f.postEdit then f.postEdit(rfsuite.app.Page) end
                 if f.onChange then f.onChange(rfsuite.app.Page) end
 
@@ -175,6 +180,7 @@ local function openPage(idx, title, script)
         end
     end
 
+    rfsuite.app.ui.setPageDirty(false)
 end
 
 local function postLoad(self)
@@ -210,7 +216,13 @@ end
 local function onToolMenu() end
 
 local function onNavMenu(self)
-    rfsuite.app.ui.openPage(pidx, title, "rates_advanced/rates_advanced.lua")
+    rfsuite.app.ui.openPage({idx = pidx, title = title, script = "rates_advanced/rates_advanced.lua"})
 end
 
-return {apidata = apidata, title = "@i18n(app.modules.rates_advanced.name)@", onNavMenu = onNavMenu, reboot = false, openPage = openPage, eepromWrite = true, refreshOnRateChange = true, rTableName = rTableName, postLoad = postLoad, wakeup = wakeup, API = {}, onToolMenu = onToolMenu, navButtons = {menu = true, save = true, reload = true, tool = false, help = true}}
+local function canSave()
+    local pref = rfsuite.preferences and rfsuite.preferences.general and rfsuite.preferences.general.save_dirty_only
+    if pref == false or pref == "false" then return true end
+    return rfsuite.app.pageDirty == true
+end
+
+return {apidata = apidata, title = "@i18n(app.modules.rates_advanced.name)@", onNavMenu = onNavMenu, reboot = false, openPage = openPage, eepromWrite = true, refreshOnRateChange = true, rTableName = rTableName, postLoad = postLoad, wakeup = wakeup, API = {}, onToolMenu = onToolMenu, canSave = canSave, navButtons = {menu = true, save = true, reload = true, tool = false, help = true}}
