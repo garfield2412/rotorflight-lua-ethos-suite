@@ -4,6 +4,8 @@
 ]] --
 
 local rfsuite = require("rfsuite")
+local pageRuntime = assert(loadfile("app/lib/page_runtime.lua"))()
+local navHandlers = pageRuntime.createMenuHandlers({defaultSection = "hardware"})
 
 local app = rfsuite.app
 local tasks = rfsuite.tasks
@@ -32,6 +34,7 @@ local state = {
     },
     form = {}
 }
+local pageTitle = "@i18n(app.modules.blackbox.name)@ / @i18n(app.modules.blackbox.menu_configuration)@"
 
 local function onoffTable()
     return {
@@ -118,15 +121,15 @@ local function updateVisibility()
     if state.form.mode and state.form.mode.enable then state.form.mode:enable(edit) end
 
     if state.form.initialErase and state.form.initialErase.enable then
-        state.form.initialErase:enable(edit and device == 1 and rfsuite.utils.apiVersionCompare(">=", "12.08"))
+        state.form.initialErase:enable(edit and device == 1 and rfsuite.utils.apiVersionCompare(">=", {12, 0, 8}))
     end
 
     if state.form.rollingErase and state.form.rollingErase.enable then
-        state.form.rollingErase:enable(edit and device == 1 and rfsuite.utils.apiVersionCompare(">=", "12.08"))
+        state.form.rollingErase:enable(edit and device == 1 and rfsuite.utils.apiVersionCompare(">=", {12, 0, 8}))
     end
 
     if state.form.gracePeriod and state.form.gracePeriod.enable then
-        state.form.gracePeriod:enable(edit and device ~= 0 and (mode == 1 or mode == 2) and rfsuite.utils.apiVersionCompare(">=", "12.08"))
+        state.form.gracePeriod:enable(edit and device ~= 0 and (mode == 1 or mode == 2) and rfsuite.utils.apiVersionCompare(">=", {12, 0, 8}))
     end
 
     updateSaveEnabled()
@@ -134,14 +137,14 @@ end
 
 local function renderLoading(message)
     form.clear()
-    app.ui.fieldHeader("@i18n(app.modules.blackbox.name)@ / @i18n(app.modules.blackbox.menu_configuration)@")
+    app.ui.fieldHeader(pageTitle)
     local line = form.addLine("@i18n(app.modules.blackbox.status)@")
     form.addStaticText(line, nil, message or "@i18n(app.msg_loading)@")
 end
 
 local function renderForm()
     form.clear()
-    app.ui.fieldHeader("@i18n(app.modules.blackbox.name)@ / @i18n(app.modules.blackbox.menu_configuration)@")
+    app.ui.fieldHeader(pageTitle)
 
     local line = form.addLine("@i18n(app.modules.blackbox.device)@")
     state.form.device = form.addChoiceField(line, nil, deviceTable(), function() return state.cfg.device end, function(v)
@@ -291,7 +294,8 @@ local function requestData(forceApiRead)
     BAPI.read()
 end
 
-local function openPage()
+local function openPage(opts)
+    pageTitle = (opts and opts.title) or pageTitle
     requestData(false)
 end
 
@@ -405,24 +409,13 @@ local function wakeup()
     updateVisibility()
 end
 
-local function event(widget, category, value)
-    if category == EVT_CLOSE and (value == 0 or value == 35) then
-        app.ui.openPage({idx = app.lastIdx, title = "@i18n(app.modules.blackbox.name)@", script = "blackbox/blackbox.lua"})
-        return true
-    end
-end
-
-local function onNavMenu()
-    app.ui.openPage({idx = app.lastIdx, title = "@i18n(app.modules.blackbox.name)@", script = "blackbox/blackbox.lua"})
-end
-
 return {
     openPage = openPage,
     wakeup = wakeup,
     onSaveMenu = onSaveMenu,
     onReloadMenu = onReloadMenu,
-    event = event,
-    onNavMenu = onNavMenu,
+    event = navHandlers.event,
+    onNavMenu = navHandlers.onNavMenu,
     eepromWrite = true,
     reboot = false,
     navButtons = {menu = true, save = true, reload = true, tool = false, help = true},

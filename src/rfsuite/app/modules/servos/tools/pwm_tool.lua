@@ -4,6 +4,7 @@
 ]] --
 
 local rfsuite = require("rfsuite")
+local pageRuntime = assert(loadfile("app/lib/page_runtime.lua"))()
 
 local triggerOverRide = false
 local triggerOverRideAll = false
@@ -170,7 +171,8 @@ end
 local function onNavMenu(self)
 
     rfsuite.app.ui.progressDisplay()
-    rfsuite.app.ui.openPage({idx = rfsuite.app.lastIdx, title = rfsuite.app.lastTitle, script = "servos/tools/pwm.lua", servoOverride = rfsuite.session.servoOverride})
+    pageRuntime.openMenuContext({defaultSection = "hardware"})
+    return true
 
 end
 
@@ -203,7 +205,7 @@ local function wakeup(self)
 
         -- go back to main as this tool is compromised 
         if rfsuite.session.servoCount == nil or rfsuite.session.servoOverride == nil then
-            rfsuite.app.ui.openMainMenu()
+            rfsuite.app.ui.openMenuContext()
             return
         end
 
@@ -218,7 +220,7 @@ local function wakeup(self)
 
             local now = os.clock()
             local settleTime
-            if rfsuite.utils.apiVersionCompare(">=", "12.09") then
+            if rfsuite.utils.apiVersionCompare(">=", {12, 0, 9}) then
                 settleTime = 0.05
             else
                 settleTime = 0.85
@@ -226,7 +228,7 @@ local function wakeup(self)
             if ((now - lastServoChangeTime) >= settleTime) and rfsuite.tasks.msp.mspQueue:isProcessed() then
                 if currentServoCenter ~= lastSetServoCenter then
                     local ok, reason
-                    if rfsuite.utils.apiVersionCompare(">=", "12.09") then
+                    if rfsuite.utils.apiVersionCompare(">=", {12, 0, 9}) then
                         ok, reason = self.saveServoCenter(self)
                     else
                         ok, reason = self.saveServoSettings(self)
@@ -579,7 +581,7 @@ local function openPage(opts)
         if rfsuite.session.servoOverride == true then rfsuite.app.formFields[idx]:enable(false) end
     end
 
-    if USE_INDEXED and rfsuite.utils.apiVersionCompare(">=", "12.09") then
+    if USE_INDEXED and rfsuite.utils.apiVersionCompare(">=", {12, 0, 9}) then
         getServoConfigurationsIndexed(getServoConfigurationsEnd)
     else
         getServoConfigurations(getServoConfigurationsEnd)
@@ -588,11 +590,7 @@ local function openPage(opts)
 end
 
 local function event(widget, category, value, x, y)
-
-    if category == EVT_CLOSE and value == 0 or value == 35 then
-        rfsuite.app.ui.openPage({idx = pidx, title = "@i18n(app.modules.servos.name)@", script = "servos/servos.lua", servoOverride = rfsuite.session.servoOverride})
-        return true
-    end
+    return pageRuntime.handleCloseEvent(category, value, {onClose = onNavMenu})
 
 end
 

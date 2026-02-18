@@ -4,6 +4,7 @@
 ]] --
 
 local rfsuite = require("rfsuite")
+local pageRuntime = assert(loadfile("app/lib/page_runtime.lua"))()
 
 local enableWakeup = false
 
@@ -13,6 +14,13 @@ local function clamp(val, min, max)
     if val < min then return min end
     if val > max then return max end
     return val
+end
+
+local function prefBool(value, default)
+    if value == nil then return default end
+    if value == true or value == "true" or value == 1 or value == "1" then return true end
+    if value == false or value == "false" or value == 0 or value == "0" then return false end
+    return default
 end
 
 local function openPage(opts)
@@ -63,6 +71,11 @@ local function openPage(opts)
     line = addFieldLine(displayPanel, "@i18n(app.modules.settings.txt_hs_loader)@")
     rfsuite.app.formFields[formFieldCount] = form.addChoiceField(line, nil, {{"@i18n(app.modules.settings.txt_hs_loader_fastclose)@", 0}, {"@i18n(app.modules.settings.txt_hs_loader_wait)@", 1}}, function() return config.hs_loader ~= nil and config.hs_loader or 1 end, function(newValue) config.hs_loader = newValue end)
 
+    line = addFieldLine(displayPanel, "@i18n(app.modules.settings.txt_collapse_unused_menu_entries)@")
+    rfsuite.app.formFields[formFieldCount] = form.addBooleanField(line, nil, function()
+        return prefBool(config.collapse_unused_menu_entries, false)
+    end, function(newValue) config.collapse_unused_menu_entries = newValue end)
+
     line = addFieldLine(safetyPanel, "@i18n(app.modules.settings.txt_save_confirm)@")
     rfsuite.app.formFields[formFieldCount] = form.addBooleanField(line, nil, function() return config.save_confirm or false end, function(newValue) config.save_confirm = newValue end)
 
@@ -99,8 +112,8 @@ local function openPage(opts)
 end
 
 local function onNavMenu()
-    rfsuite.app.ui.progressDisplay(nil, nil, rfsuite.app.loaderSpeed.FAST)
-    rfsuite.app.ui.openPage({idx = pageIdx, title = "@i18n(app.modules.settings.name)@", script = "settings/settings.lua"})
+    pageRuntime.openMenuContext()
+    return true
 end
 
 local function onSaveMenu()
@@ -134,11 +147,7 @@ local function onSaveMenu()
 end
 
 local function event(widget, category, value, x, y)
-
-    if category == EVT_CLOSE and value == 0 or value == 35 then
-        rfsuite.app.ui.openPage({idx = pageIdx, title = "@i18n(app.modules.settings.name)@", script = "settings/settings.lua"})
-        return true
-    end
+    return pageRuntime.handleCloseEvent(category, value, {onClose = onNavMenu})
 end
 
 return {event = event, openPage = openPage, onNavMenu = onNavMenu, onSaveMenu = onSaveMenu, navButtons = {menu = true, save = true, reload = false, tool = false, help = false}, API = {}}

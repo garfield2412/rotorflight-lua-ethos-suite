@@ -4,6 +4,8 @@
 ]] --
 
 local rfsuite = require("rfsuite")
+local pageRuntime = assert(loadfile("app/lib/page_runtime.lua"))()
+local navHandlers = pageRuntime.createMenuHandlers({defaultSection = "hardware"})
 
 local ADJUST_TYPE_OPTIONS = {
     "@i18n(app.modules.adjustments.type_off)@",
@@ -60,8 +62,8 @@ local ADJUST_FUNCTIONS = {
     {id = 27, name = "Yaw CCW Stop Gain", min = 25, max = 250},
     {id = 28, name = "Yaw Cyclic FF", min = 0, max = 250},
     {id = 29, name = "Yaw Collective FF", min = 0, max = 250},
-    {id = 30, name = "Yaw Collective Dyn", min = -125, max = 125, maxApi = "12.07"},
-    {id = 31, name = "Yaw Collective Decay", min = 1, max = 250, maxApi = "12.07"},
+    {id = 30, name = "Yaw Collective Dyn", min = -125, max = 125, maxApi = {12, 0, 7}},
+    {id = 31, name = "Yaw Collective Decay", min = 1, max = 250, maxApi = {12, 0, 7}},
     {id = 32, name = "Pitch Collective FF", min = 0, max = 250},
     {id = 33, name = "Pitch Gyro Cutoff", min = 0, max = 250},
     {id = 34, name = "Roll Gyro Cutoff", min = 0, max = 250},
@@ -96,22 +98,22 @@ local ADJUST_FUNCTIONS = {
     {id = 63, name = "Cross Coupling Cutoff", min = 0, max = 250},
     {id = 64, name = "Acc Trim Pitch", min = -300, max = 300},
     {id = 65, name = "Acc Trim Roll", min = -300, max = 300},
-    {id = 66, name = "Yaw Inertia Precomp Gain", min = 0, max = 250, minApi = "12.08"},
-    {id = 67, name = "Yaw Inertia Precomp Cutoff", min = 0, max = 250, minApi = "12.08"},
-    {id = 68, name = "Pitch Setpoint Boost Gain", min = 0, max = 255, minApi = "12.08"},
-    {id = 69, name = "Roll Setpoint Boost Gain", min = 0, max = 255, minApi = "12.08"},
-    {id = 70, name = "Yaw Setpoint Boost Gain", min = 0, max = 255, minApi = "12.08"},
-    {id = 71, name = "Col Setpoint Boost Gain", min = 0, max = 255, minApi = "12.08"},
-    {id = 72, name = "Yaw Dyn Ceiling Gain", min = 0, max = 250, minApi = "12.08"},
-    {id = 73, name = "Yaw Dyn Deadband Gain", min = 0, max = 250, minApi = "12.08"},
-    {id = 74, name = "Yaw Dyn Deadband Filter", min = 0, max = 250, minApi = "12.08"},
-    {id = 75, name = "Yaw Precomp Cutoff", min = 0, max = 250, minApi = "12.08"},
-    {id = 76, name = "Gov Idle Throttle", min = 0, max = 250, minApi = "12.09"},
-    {id = 77, name = "Gov Auto Throttle", min = 0, max = 250, minApi = "12.09"},
-    {id = 78, name = "Gov Max Throttle", min = 0, max = 100, minApi = "12.09"},
-    {id = 79, name = "Gov Min Throttle", min = 0, max = 100, minApi = "12.09"},
-    {id = 80, name = "Gov Headspeed", min = 0, max = 10000, minApi = "12.09"},
-    {id = 81, name = "Gov Yaw FF", min = 0, max = 250, minApi = "12.09"}
+    {id = 66, name = "Yaw Inertia Precomp Gain", min = 0, max = 250, minApi = {12, 0, 8}},
+    {id = 67, name = "Yaw Inertia Precomp Cutoff", min = 0, max = 250, minApi = {12, 0, 8}},
+    {id = 68, name = "Pitch Setpoint Boost Gain", min = 0, max = 255, minApi = {12, 0, 8}},
+    {id = 69, name = "Roll Setpoint Boost Gain", min = 0, max = 255, minApi = {12, 0, 8}},
+    {id = 70, name = "Yaw Setpoint Boost Gain", min = 0, max = 255, minApi = {12, 0, 8}},
+    {id = 71, name = "Col Setpoint Boost Gain", min = 0, max = 255, minApi = {12, 0, 8}},
+    {id = 72, name = "Yaw Dyn Ceiling Gain", min = 0, max = 250, minApi = {12, 0, 8}},
+    {id = 73, name = "Yaw Dyn Deadband Gain", min = 0, max = 250, minApi = {12, 0, 8}},
+    {id = 74, name = "Yaw Dyn Deadband Filter", min = 0, max = 250, minApi = {12, 0, 8}},
+    {id = 75, name = "Yaw Precomp Cutoff", min = 0, max = 250, minApi = {12, 0, 8}},
+    {id = 76, name = "Gov Idle Throttle", min = 0, max = 250, minApi = {12, 0, 9}},
+    {id = 77, name = "Gov Auto Throttle", min = 0, max = 250, minApi = {12, 0, 9}},
+    {id = 78, name = "Gov Max Throttle", min = 0, max = 100, minApi = {12, 0, 9}},
+    {id = 79, name = "Gov Min Throttle", min = 0, max = 100, minApi = {12, 0, 9}},
+    {id = 80, name = "Gov Headspeed", min = 0, max = 10000, minApi = {12, 0, 9}},
+    {id = 81, name = "Gov Yaw FF", min = 0, max = 250, minApi = {12, 0, 9}}
 }
 
 local state = {
@@ -670,26 +672,26 @@ end
 
 local function readAdjustmentFunctions(onComplete, onError)
     if state.supportsAdjustmentFunctions == false then
-        if onError then onError("ADJUSTMENT_FUNCTIONS unsupported") end
+        if onError then onError("GET_ADJUSTMENT_FUNCTION_IDS unsupported") end
         return
     end
 
-    local API = rfsuite.tasks.msp.api.load("ADJUSTMENT_FUNCTIONS")
+    local API = rfsuite.tasks.msp.api.load("GET_ADJUSTMENT_FUNCTION_IDS")
     if not API then
         state.supportsAdjustmentFunctions = false
-        if onError then onError("ADJUSTMENT_FUNCTIONS API unavailable") end
+        if onError then onError("GET_ADJUSTMENT_FUNCTION_IDS API unavailable") end
         return
     end
 
     API.setCompleteHandler(function()
         state.supportsAdjustmentFunctions = true
-        local values = API.readValue("adjustment_functions") or {}
+        local values = API.readValue("adjustment_function_ids") or {}
         if onComplete then onComplete(values) end
     end)
 
     API.setErrorHandler(function()
         state.supportsAdjustmentFunctions = false
-        if onError then onError("ADJUSTMENT_FUNCTIONS read failed") end
+        if onError then onError("GET_ADJUSTMENT_FUNCTION_IDS read failed") end
     end)
 
     API.read()
@@ -1755,11 +1757,6 @@ local function onReloadMenu()
     startLoad()
 end
 
-local function onNavMenu()
-    rfsuite.app.ui.openMainMenuSub("hardware")
-    return true
-end
-
 local function wakeup()
     if state.needsRender then
         render()
@@ -1793,7 +1790,7 @@ return {
     wakeup = wakeup,
     onSaveMenu = onSaveMenu,
     onReloadMenu = onReloadMenu,
-    onNavMenu = onNavMenu,
+    onNavMenu = navHandlers.onNavMenu,
     eepromWrite = false,
     reboot = false,
     navButtons = {menu = true, save = true, reload = true, tool = false, help = true},

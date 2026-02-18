@@ -10,6 +10,19 @@ local tables = {}
 
 local activateWakeup = false
 
+local function resolveScriptPath(script)
+    if type(script) ~= "string" then return nil, nil end
+    local relativeScript = script
+    if relativeScript:sub(1, 12) == "app/modules/" then
+        relativeScript = relativeScript:sub(13)
+    end
+    local modulePath = script
+    if modulePath:sub(1, 4) ~= "app/" then
+        modulePath = "app/modules/" .. modulePath
+    end
+    return modulePath, relativeScript
+end
+
 tables[0] = "app/modules/rates/ratetables/none.lua"
 tables[1] = "app/modules/rates/ratetables/betaflight.lua"
 tables[2] = "app/modules/rates/ratetables/raceflight.lua"
@@ -59,12 +72,13 @@ local function openPage(opts)
     local title = opts.title
     local script = opts.script
 
-    rfsuite.app.Page = assert(loadfile("app/modules/" .. script))()
+    local modulePath, relativeScript = resolveScriptPath(script)
+    rfsuite.app.Page = assert(loadfile(modulePath))()
 
     rfsuite.app.lastIdx = idx
     rfsuite.app.lastTitle = title
-    rfsuite.app.lastScript = script
-    rfsuite.session.lastPage = script
+    rfsuite.app.lastScript = relativeScript or script
+    rfsuite.session.lastPage = relativeScript or script
 
     rfsuite.app.uiState = rfsuite.app.uiStatus.pages
 
@@ -178,10 +192,11 @@ end
 
 local function wakeup()
     if activateWakeup == true and rfsuite.tasks.msp.mspQueue:isProcessed() then
-        if rfsuite.session.activeRateProfile ~= nil then
-            if rfsuite.app.formFields['title'] then
-                rfsuite.app.formFields['title']:value(rfsuite.app.Page.title .. " #" .. rfsuite.session.activeRateProfile)
-            end
+        local activeRateProfile = rfsuite.session and rfsuite.session.activeRateProfile
+        if activeRateProfile ~= nil and rfsuite.app.formFields['title'] then
+            local baseTitle = rfsuite.app.lastTitle or (rfsuite.app.Page and rfsuite.app.Page.title) or ""
+            baseTitle = tostring(baseTitle):gsub("%s+#%d+$", "")
+            rfsuite.app.ui.setHeaderTitle(baseTitle .. " #" .. activeRateProfile, nil, rfsuite.app.Page and rfsuite.app.Page.navButtons)
         end
     end
 end
