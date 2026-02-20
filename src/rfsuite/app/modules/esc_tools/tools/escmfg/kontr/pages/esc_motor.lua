@@ -4,7 +4,7 @@
 ]] --
 
 local rfsuite = require("rfsuite")
-
+local escToolsPage = assert(loadfile("app/lib/esc_tools_page.lua"))()
 local folder = "kontr"
 
 local apidata = {
@@ -39,41 +39,23 @@ local apidata = {
     }
 }
 
-local function postLoad()
+local function postLoad() rfsuite.app.triggers.closeProgressLoader = true end
 
-    if rfsuite.app.Page.apidata and rfsuite.tasks.msp.api.apidata.other and rfsuite.tasks.msp.api.apidata.other['ESC_PARAMETERS_KONTRONIK'] then
-        local version
-        if rfsuite.session.escDetails and rfsuite.session.escDetails.version then
-            version = rfsuite.session.escDetails.version
-        else
-            version = "default"
-        end
+local navHandlers = escToolsPage.createSubmenuHandlers(folder)
 
-        if rfsuite.tasks.msp.api.apidata.other['ESC_PARAMETERS_KONTRONIK'][version] then
-            local newVoltage = rfsuite.tasks.msp.api.apidata.other['ESC_PARAMETERS_KONTRONIK'][version]
-            local voltageTable = rfsuite.app.utils.convertPageValueTable(newVoltage, -1)
-
-            rfsuite.app.formFields[3]:values(voltageTable)
-        end
-
-    end
-
-    rfsuite.app.triggers.closeProgressLoader = true
-end
-
-local function onNavMenu(self)
-    rfsuite.app.triggers.escToolEnableButtons = true
-    rfsuite.app.ui.openPage(pidx, folder, "esc_motors/tools/esc_tool.lua")
-end
-
-local function event(widget, category, value, x, y)
-
-    if category == EVT_CLOSE and value == 0 or value == 35 then
-        if powercycleLoader then powercycleLoader:close() end
-        rfsuite.app.ui.openPage(pidx, folder, "esc_motors/tools/esc_tool.lua")
-        return true
-    end
-
-end
-
-return {apidata = apidata, eepromWrite = true, reboot = false, escinfo = escinfo, postLoad = postLoad, navButtons = {menu = true, save = true, reload = true, tool = false, help = false}, onNavMenu = onNavMenu, event = event, pageTitle = "@i18n(app.modules.esc_tools.name)@" .. " / " .. "@i18n(app.modules.esc_tools.mfg.kontr.name)@" .. " / " .. "@i18n(app.modules.esc_tools.mfg.kontr.motor)@", headerLine = rfsuite.escHeaderLineText}
+return {
+    apidata = apidata,
+    eepromWrite = true,
+    reboot = false,
+    escinfo = escinfo,
+    postLoad = postLoad,
+    navButtons = {menu = true, save = true,
+    reload = true,
+    tool = false,
+    help = false},
+    onNavMenu = onNavMenu,
+    event = event,
+    pageTitle = "@i18n(app.modules.esc_tools.name)@" .. " / " .. "@i18n(app.modules.esc_tools.mfg.kontr.name)@" .. " / " .. "@i18n(app.modules.esc_tools.mfg.kontr.motor)@",
+    headerLine = rfsuite.escHeaderLineText,
+    progressCounter = 0.5
+}
