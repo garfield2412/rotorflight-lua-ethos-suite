@@ -20,8 +20,6 @@ local MSP_API_STRUCTURE_READ_DATA = {
   {field = "esc_signature", type="U8", apiVersion=12.07, simResponse={ 75 }, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_signature)@" },
   {field = "esc_command", type = "U8", apiVersion = 12.07, simResponse = {0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_command)@"},
   {field = "esc_model", type = "U128", apiVersion = 12.07, simResponse = {75, 79, 76, 73, 66, 82, 73, 49, 52, 48, 43, 76, 86, 32, 32, 32}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_model)@"},
-  {field = "esc_version", type = "U128", apiVersion = 12.07, simResponse = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_version)@"},
-  {field = "esc_firmware", type = "U128", apiVersion = 12.07, simResponse = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_firmware)@"},
   {field = "bec_voltage", type = "U16", apiVersion = 12.07, simResponse = {0, 0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bec_voltage)@"},
   {field = "rotation", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.rotation)@" },
   {field = "fwd_bckwd", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.fwd_bckwd)@" },
