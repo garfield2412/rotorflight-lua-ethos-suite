@@ -4654,6 +4654,11 @@
               "needs_translation": false,
               "translation": "Brake"
             },
+            "prop_brake": {
+              "english": "Proportional Brake",
+              "needs_translation": false,
+              "translation": "Proportional Brake"
+            },
             "rpm_ctl": {
               "english": "RPM Control",
               "needs_translation": false,
@@ -4773,6 +4778,16 @@
               "english": "Undervoltage Behavior",
               "needs_translation": false,
               "translation": "Undervoltage Behavior"
+            },
+            "undervoltage_behavior_slow": {
+              "english": "... slow down motor",
+              "needs_translation": false,
+              "translation": "... slow down motor"
+            },
+            "undervoltage_behavior_cut": {
+              "english": "... cut motor",
+              "needs_translation": false,
+              "translation": "... cut motor"
             },
             "undervoltage_cell": {
               "english": "... at a Cell Voltage of",
