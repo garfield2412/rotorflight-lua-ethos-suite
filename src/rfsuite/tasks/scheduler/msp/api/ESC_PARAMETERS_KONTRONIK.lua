@@ -74,7 +74,8 @@ local defaultData = {}
 local handlers = core.createHandlers()
 
 local MSP_API_UUID
-local MSP_API_MSG_TIMEOUT
+-- Keep below UI request watchdog (~2s) to avoid overlapping retry cascades on page switches.
+local MSP_API_MSG_TIMEOUT = 1.8
 
 local lastWriteUUID = nil
 
@@ -215,6 +216,20 @@ local function readU24LE(buf, pos)
     return b0 | (b1 << 8) | (b2 << 16), pos + 3
 end
 
+local REG_VALUE_BYTES = {
+    [16472] = 4 -- Kontronik summary extension register (U32)
+}
+
+local function readULE(buf, pos, byteCount)
+    local value = 0
+    for i = 0, byteCount - 1 do
+        local b = buf[pos + i]
+        if b == nil then return nil end
+        value = value | (b << (8 * i))
+    end
+    return value, pos + byteCount
+end
+
 local function parseKontronikReadBuffer(buf)
     if type(buf) ~= "table" then return nil, "buffer is not a table" end
 
@@ -249,16 +264,43 @@ local function parseKontronikReadBuffer(buf)
     for i = 1, pairCount do
         local reg
         reg, pos = readU16LE(buf, pos)
-        if reg == nil then return nil, "truncated register id at pair " .. tostring(i) end
+        if reg == nil then
+            log("[" .. API_NAME .. "] truncated register id at pair " .. tostring(i), "info")
+            break
+        end
+
+        local valueBytes = REG_VALUE_BYTES[reg] or 3
+        -- Defensive: some Kontronik frames appear to carry reg 16472 with 3 bytes.
+        -- If 4-byte decoding would make the remaining pair budget impossible, fall back to 3.
+        if reg == 16472 and valueBytes == 4 then
+            local remainingBytes = (#buf - pos + 1)
+            local remainingPairsAfterCurrent = pairCount - i
+            local minBytesAfterCurrent = remainingPairsAfterCurrent * 5 -- U16 reg + U24 value
+            if remainingBytes < (4 + minBytesAfterCurrent) and remainingBytes >= (3 + minBytesAfterCurrent) then
+                valueBytes = 3
+            end
+        end
 
         local value
-        value, pos = readU24LE(buf, pos)
-        if value == nil then return nil, "truncated register value at pair " .. tostring(i) end
+        if valueBytes == 3 then
+            value, pos = readU24LE(buf, pos)
+        else
+            value, pos = readULE(buf, pos, valueBytes)
+        end
+        if value == nil then
+            log("[" .. API_NAME .. "] truncated register value at pair " .. tostring(i) .. " (reg " .. tostring(reg) .. ")", "info")
+            break
+        end
 
         registers[reg] = value
 
         local fieldName = REG_TO_FIELD[reg]
         if fieldName ~= nil then parsed[fieldName] = value end
+    end
+
+    -- If this key register is missing, the pair decode is unreliable (misalignment / truncation).
+    if registers[16388] == nil then
+        return nil, "missing summary register 16388"
     end
 
     applySummary16388(parsed, registers[16388])
@@ -320,6 +362,8 @@ local function read()
         return
     end
 
+    -- Avoid showing stale data when a read fails and UI retries.
+    mspData = nil
     local message = {command = MSP_API_CMD_READ, apiname=API_NAME, structure = MSP_API_STRUCTURE_READ, minBytes = MSP_MIN_BYTES, processReply = processReplyStaticRead, errorHandler = errorHandlerStatic, simulatorResponse = KONTRONIK_SIMULATOR_RESPONSE, uuid = MSP_API_UUID, timeout = MSP_API_MSG_TIMEOUT, getCompleteHandler = handlers.getCompleteHandler, getErrorHandler = handlers.getErrorHandler, mspData = nil}
     rfsuite.tasks.msp.mspQueue:add(message)
 end
