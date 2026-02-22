@@ -265,22 +265,10 @@ local function parseKontronikReadBuffer(buf)
         local reg
         reg, pos = readU16LE(buf, pos)
         if reg == nil then
-            log("[" .. API_NAME .. "] truncated register id at pair " .. tostring(i), "info")
-            break
+            return nil, "truncated register id at pair " .. tostring(i)
         end
 
         local valueBytes = REG_VALUE_BYTES[reg] or 3
-        -- Defensive: some Kontronik frames appear to carry reg 16472 with 3 bytes.
-        -- If 4-byte decoding would make the remaining pair budget impossible, fall back to 3.
-        if reg == 16472 and valueBytes == 4 then
-            local remainingBytes = (#buf - pos + 1)
-            local remainingPairsAfterCurrent = pairCount - i
-            local minBytesAfterCurrent = remainingPairsAfterCurrent * 5 -- U16 reg + U24 value
-            if remainingBytes < (4 + minBytesAfterCurrent) and remainingBytes >= (3 + minBytesAfterCurrent) then
-                valueBytes = 3
-            end
-        end
-
         local value
         if valueBytes == 3 then
             value, pos = readU24LE(buf, pos)
@@ -288,8 +276,7 @@ local function parseKontronikReadBuffer(buf)
             value, pos = readULE(buf, pos, valueBytes)
         end
         if value == nil then
-            log("[" .. API_NAME .. "] truncated register value at pair " .. tostring(i) .. " (reg " .. tostring(reg) .. ")", "info")
-            break
+            return nil, "truncated register value at pair " .. tostring(i) .. " (reg " .. tostring(reg) .. ")"
         end
 
         registers[reg] = value
