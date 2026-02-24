@@ -48,17 +48,15 @@ local MSP_API_STRUCTURE_READ_DATA = {
   {field = "max_discharge", type = "U16", apiVersion = 12.07, simResponse = {86, 32, 10, 0, 0}, default = 15, min = 0, max = 50, step = 1,  unit = "Ah", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_discharge)@" },
   {field = "min_input_voltage", type = "U16", apiVersion = 12.07, simResponse = {76, 32, 172, 13, 0}, default = 3000, min = 1000, max = 100000, step = 100, unit = "mV", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.min_input_voltage)@" },
   {field = "max_motor_current", type = "U16", apiVersion = 12.07, simResponse = {78, 32, 150, 0, 0}, default = 150, min = 0, max = 500, step = 1, unit = "A", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_motor_current)@" },
-  {field = "max_esc_temp", type = "U8", apiVersion = 12.07, simResponse = {90}, default = 90, min = 0, max = 200, step = 1,  unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_esc_temp)@" },
-  {field = "max_bec_temp", type = "U8", apiVersion = 12.07, simResponse = {95}, default = 95, min = 0, max = 255, step = 1, unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_temp)@" },
-  {field = "max_bec_current", type = "U8", apiVersion = 12.07, simResponse = {12}, default = 12, min = 0, max = 50, step = 1, unit = "A", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_current)@" },
+  {field = "max_esc_temp", type = "U16", apiVersion = 12.07, simResponse = {80, 32, 90, 0, 0}, default = 90, min = 0, max = 200, step = 1,  unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_esc_temp)@" },
+  {field = "max_bec_temp", type = "U16", apiVersion = 12.07, simResponse = {82, 32, 95, 0, 0}, default = 95, min = 0, max = 255, step = 1, unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_temp)@" },
+  {field = "max_bec_current", type = "U16", apiVersion = 12.07, simResponse = {84, 32, 224, 46, 0}, default = 12, min = 0, max = 50000, step = 100, unit = "mA", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_current)@" },
   {field = "act_impulse_length", type = "U16", apiVersion = 12.07, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us"},
   {field = "off_position", type = "U16", apiVersion = 12.07, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.off_position)@" },
   {field = "max_position", type = "U16", apiVersion = 12.07, simResponse = {148, 7}, default = 1940, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_position)@" },
   {field = "brake_position", type = "U16", apiVersion = 12.07, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.brake_position)@" },
   {field = "bt_disable_motor_renable_button", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bt_disable_motor_renable_button)@" },
   {field = "bt_disable_motor_renable_motor_stop", type = "U8", apiVersion = 12.07, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bt_disable_motor_renable_motor_stop)@" },
-  {field = "status_bec_v", type = "U8", apiVersion = 12.07, simResponse = { 60 }, unit = "V"},
-  {field = "status_bec_a", type = "U8", apiVersion = 12.07, simResponse = { 5 }, unit = "A"},
 }
 -- LuaFormatter on
 
@@ -182,6 +180,26 @@ local REG_TO_FIELD = {
     [20480] = "flight_Mode",
 }
 
+local FIELD_TO_REG = {}
+for reg, field in pairs(REG_TO_FIELD) do
+    if field ~= "summary_16388" then FIELD_TO_REG[field] = reg end
+end
+
+local SUMMARY_REG = 16388
+local SUMMARY_BATTERY_MASK = 0x000C
+local ESC_WRITE_VERSION = 1 -- lower 6 bits in esc_ver_cmd
+local SUMMARY_FIELD_BITS = {
+    brake = 0x0001,
+    prop_brake = 0x0002,
+    undervoltage_behavior = 0x0100,
+    rotation = 0x0400,
+    fwd_bckwd = 0x2000,
+    extra_smooth_IU = 0x4000,
+    alternate_startup = 0x20000,
+    bt_disable_motor_renable_button = 0x40000,
+    bt_disable_motor_renable_motor_stop = 0x80000
+}
+
 local function applySummary16388(parsed, summary)
     if summary == nil then return end
 
@@ -191,7 +209,8 @@ local function applySummary16388(parsed, summary)
     -- Single-bit toggles decoded from summary register 16388.
     parsed.brake = ((summary & 0x0001) ~= 0) and 1 or 0
     parsed.prop_brake = ((summary & 0x0002) ~= 0) and 1 or 0
-    parsed.how_adj_max_rpm = ((summary & 0x0040) ~= 0) and 0 or 1
+    -- Bit set => "Stored in EEPROM" (table value 1), clear => "Idle up" (table value 0).
+    parsed.how_adj_max_rpm = ((summary & 0x0040) ~= 0) and 1 or 0
     parsed.undervoltage_behavior = ((summary & 0x0100) ~= 0) and 1 or 0
     parsed.rotation = ((summary & 0x0400) ~= 0) and 1 or 0
     parsed.fwd_bckwd = ((summary & 0x2000) ~= 0) and 1 or 0
@@ -199,6 +218,113 @@ local function applySummary16388(parsed, summary)
     parsed.alternate_startup = ((summary & 0x20000) ~= 0) and 1 or 0
     parsed.bt_disable_motor_renable_button = ((summary & 0x40000) ~= 0) and 1 or 0
     parsed.bt_disable_motor_renable_motor_stop = ((summary & 0x80000) ~= 0) and 1 or 0
+end
+
+local function appendU16LE(out, value)
+    out[#out + 1] = value & 0xFF
+    out[#out + 1] = (value >> 8) & 0xFF
+end
+
+local function appendU24LE(out, value)
+    out[#out + 1] = value & 0xFF
+    out[#out + 1] = (value >> 8) & 0xFF
+    out[#out + 1] = (value >> 16) & 0xFF
+end
+
+local function appendU32LE(out, value)
+    out[#out + 1] = value & 0xFF
+    out[#out + 1] = (value >> 8) & 0xFF
+    out[#out + 1] = (value >> 16) & 0xFF
+    out[#out + 1] = (value >> 24) & 0xFF
+end
+
+local function appendPairRegisterThenValue(out, reg, value)
+    appendU16LE(out, reg)
+    if reg == 16472 then
+        appendU32LE(out, value)
+    else
+        appendU24LE(out, value)
+    end
+end
+
+local function appendModel16(out, model)
+    local s = type(model) == "string" and model or ""
+    local len = #s
+    for i = 1, 16 do
+        if i <= len then
+            out[#out + 1] = string.byte(s, i) or 0x20
+        else
+            out[#out + 1] = 0x20
+        end
+    end
+end
+
+local function buildKontronikWritePayload(values)
+    local pairsOut = {}
+    local pairCount = 0
+    local parsed = mspData and mspData.parsed or nil
+    local baseSummary = 0
+    if mspData and mspData.other and mspData.other.registers and mspData.other.registers[SUMMARY_REG] ~= nil then
+        baseSummary = mspData.other.registers[SUMMARY_REG]
+    end
+    local summary = baseSummary
+    local summaryTouched = false
+
+    local function maybeNumber(v)
+        local n = tonumber(v)
+        if n == nil then return nil end
+        return math.floor(n + 0.5)
+    end
+
+    for _, def in ipairs(MSP_API_STRUCTURE_WRITE) do
+        local field = def.field
+        local value = maybeNumber(values[field])
+        if value ~= nil then
+            local oldValue = parsed and tonumber(parsed[field]) or nil
+            local changed = (oldValue == nil) or (math.floor(oldValue + 0.5) ~= value)
+            if not changed then goto continue end
+
+            local reg = FIELD_TO_REG[field]
+            if reg ~= nil then
+                appendPairRegisterThenValue(pairsOut, reg, value)
+                pairCount = pairCount + 1
+            elseif field == "battery_type" then
+                local bt = value & 0x03
+                summary = (summary & (~SUMMARY_BATTERY_MASK)) | ((bt << 2) & SUMMARY_BATTERY_MASK)
+                summaryTouched = true
+            elseif field == "how_adj_max_rpm" then
+                local mask = 0x0040
+                -- Bit set => "Stored in EEPROM" (table value 1), clear => "Idle up" (table value 0).
+                if value == 1 then summary = summary | mask else summary = summary & (~mask) end
+                summaryTouched = true
+            else
+                local mask = SUMMARY_FIELD_BITS[field]
+                if mask ~= nil then
+                    if value ~= 0 then summary = summary | mask else summary = summary & (~mask) end
+                    summaryTouched = true
+                end
+            end
+        end
+        ::continue::
+    end
+
+    if summaryTouched then
+        appendPairRegisterThenValue(pairsOut, SUMMARY_REG, summary)
+        pairCount = pairCount + 1
+    end
+
+    local out = {}
+    local signature = (parsed and tonumber(parsed.esc_signature)) or MSP_SIGNATURE
+    local model = (parsed and parsed.esc_model) or ""
+    local escVerCmd = (ESC_WRITE_VERSION & 0x3F) -- upper 2 command bits currently 0
+
+    out[#out + 1] = signature & 0xFF
+    out[#out + 1] = escVerCmd & 0xFF
+    appendModel16(out, model)
+    out[#out + 1] = pairCount & 0xFF
+    for i = 1, #pairsOut do out[#out + 1] = pairsOut[i] end
+
+    return out
 end
 
 local function readU16LE(buf, pos)
@@ -285,12 +411,10 @@ local function parseKontronikReadBuffer(buf)
         if fieldName ~= nil then parsed[fieldName] = value end
     end
 
-    -- If this key register is missing, the pair decode is unreliable (misalignment / truncation).
-    if registers[16388] == nil then
-        return nil, "missing summary register 16388"
+    -- Summary register may be absent on some frames; keep partial decode usable.
+    if registers[16388] ~= nil then
+        applySummary16388(parsed, registers[16388])
     end
-
-    applySummary16388(parsed, registers[16388])
 
     return {
         parsed = parsed,
@@ -349,8 +473,7 @@ local function read()
         return
     end
 
-    -- Avoid showing stale data when a read fails and UI retries.
-    mspData = nil
+    -- Keep last known-good data until a new valid frame is parsed.
     local message = {command = MSP_API_CMD_READ, apiname=API_NAME, structure = MSP_API_STRUCTURE_READ, minBytes = MSP_MIN_BYTES, processReply = processReplyStaticRead, errorHandler = errorHandlerStatic, simulatorResponse = KONTRONIK_SIMULATOR_RESPONSE, uuid = MSP_API_UUID, timeout = MSP_API_MSG_TIMEOUT, getCompleteHandler = handlers.getCompleteHandler, getErrorHandler = handlers.getErrorHandler, mspData = nil}
     rfsuite.tasks.msp.mspQueue:add(message)
 end
@@ -361,7 +484,16 @@ local function write(suppliedPayload)
         return
     end
 
-    local payload = suppliedPayload or core.buildWritePayload(API_NAME, payloadData, MSP_API_STRUCTURE_WRITE, MSP_REBUILD_ON_WRITE)
+    local payload
+    if type(suppliedPayload) == "table" and #suppliedPayload > 0 and suppliedPayload[1] ~= nil then
+        -- Keep compatibility with callers that pass a prebuilt byte stream.
+        payload = suppliedPayload
+    else
+        payload = buildKontronikWritePayload(payloadData)
+    end
+    if type(payload) ~= "table" or #payload == 0 then
+        return false, "empty_payload"
+    end
 
     local uuid = MSP_API_UUID or rfsuite.utils and rfsuite.utils.uuid and rfsuite.utils.uuid() or tostring(os.clock())
     lastWriteUUID = uuid
