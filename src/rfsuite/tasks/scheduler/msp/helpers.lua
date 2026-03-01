@@ -4,6 +4,7 @@
 ]] --
 
 local rfsuite = require("rfsuite")
+local system = system
 
 
 -- Optimized locals to reduce global/table lookups
@@ -15,6 +16,7 @@ function helpers.governorMode(callback)
     if (rfsuite.session.governorMode == nil ) then
         local msp = rfsuite.tasks.msp
         local API = msp and msp.api.load("GOVERNOR_CONFIG")
+        if API and API.enableDeltaCache then API.enableDeltaCache(false) end
         API.setCompleteHandler(function(self, buf)
             local governorMode = API.readValue("gov_mode")
             if governorMode then 
@@ -34,6 +36,7 @@ function helpers.servoCount(callback)
     if (rfsuite.session.servoCount == nil) then
         local msp = rfsuite.tasks.msp
         local API = msp and msp.api.load("STATUS")
+        if API and API.enableDeltaCache then API.enableDeltaCache(false) end
         API.setCompleteHandler(function(self, buf)
             rfsuite.session.servoCount = API.readValue("servo_count")
             if rfsuite.session.servoCount then 
@@ -52,6 +55,7 @@ function helpers.servoOverride(callback)
     if (rfsuite.session.servoOverride == nil) then
         local msp = rfsuite.tasks.msp
         local API = msp and msp.api.load("SERVO_OVERRIDE")
+        if API and API.enableDeltaCache then API.enableDeltaCache(false) end
         API.setCompleteHandler(function(self, buf)
             for i, v in pairs(API.data().parsed) do
                 if v == 0 then
@@ -119,9 +123,19 @@ function helpers.mixerConfig(callback)
     if (rfsuite.session.tailMode == nil or rfsuite.session.swashMode == nil) then
         local msp = rfsuite.tasks.msp
         local API = msp and msp.api.load("MIXER_CONFIG")
+        if API and API.enableDeltaCache then API.enableDeltaCache(false) end
         API.setCompleteHandler(function(self, buf)
             rfsuite.session.tailMode = API.readValue("tail_rotor_mode")
             rfsuite.session.swashMode = API.readValue("swash_type")
+            if system and system.getVersion and system.getVersion().simulation then
+                local dev = rfsuite.preferences and rfsuite.preferences.developer
+                local override = dev and dev.tailmode_override
+                override = tonumber(override)
+                if override == 0 or override == 1 then
+                    rfsuite.session.tailMode = override
+                    utils.log("Tail mode override (developer): " .. tostring(override), "debug")
+                end
+            end
             if rfsuite.session.tailMode and rfsuite.session.swashMode then
                 utils.log("Tail mode: " .. rfsuite.session.tailMode, "debug")
                 utils.log("Swash mode: " .. rfsuite.session.swashMode, "debug")

@@ -30,6 +30,7 @@ local config = {
         v2MinApiVersion = {12, 0, 9},
     },
     mspProtocolVersion = 1,
+    maxModelImageBytes = 350 * 1024 -- 350KB, to prevent OOM crashes on models with very large images
 }
 -- LuaFormatter on
 
@@ -69,6 +70,25 @@ local userpref_defaults = {
         theme_inflight = "system/default",
         theme_postflight = "system/default"
     },
+    activelook = {
+        offset_x = 0,
+        offset_y = 0,
+        layout_preflight = "stacked_three",
+        layout_inflight = "one_top_two_bottom",
+        layout_postflight = "two_top_two_bottom",
+        preflight_1 = "governor",
+        preflight_2 = "armed",
+        preflight_3 = "flightmode",
+        preflight_4 = "off",
+        inflight_1 = "current",
+        inflight_2 = "voltage",
+        inflight_3 = "fuel",
+        inflight_4 = "timer",
+        postflight_1 = "current",
+        postflight_2 = "voltage",
+        postflight_3 = "fuel",
+        postflight_4 = "timer"
+    },
     events = {
         armflags = true,
         voltage = true,
@@ -94,9 +114,11 @@ local userpref_defaults = {
         logmspQueue = false,
         logevents = false,
         memstats = false,
+        logcachestats = false,
         taskprofiler = false,
         mspexpbytes = 8,
         apiversion = 2,
+        tailmode_override = 0,
         overlaystats = false,
         overlaygrid = false,
         overlaystatsadmin = false
@@ -149,6 +171,8 @@ rfsuite.utils.session()
 
 rfsuite.simevent = {telemetry_state = true}
 
+rfsuite.sysIndex = {}
+
 function rfsuite.version()
     local v = rfsuite.config.version
     return {version = string.format("%d.%d.%d-%s", v.major, v.minor, v.revision, v.suffix), major = v.major, minor = v.minor, revision = v.revision, suffix = v.suffix}
@@ -191,7 +215,7 @@ local function unsupported_i18n()
 end
 
 local function register_main_tool()
-    system.registerSystemTool({
+    rfsuite.sysIndex['app'] = system.registerSystemTool({
         event  = rfsuite.app.event,
         name   = rfsuite.config.toolName,
         icon   = rfsuite.config.icon,
@@ -203,7 +227,7 @@ local function register_main_tool()
 end
 
 local function register_bg_task()
-    system.registerTask({
+    rfsuite.sysIndex['task'] = system.registerTask({
         name  = rfsuite.config.bgTaskName,
         key   = rfsuite.config.bgTaskKey,
         wakeup = rfsuite.tasks.wakeup,
@@ -248,22 +272,35 @@ local function register_widgets()
                 end
                 rfsuite.widgets[base] = scriptModule
 
-                system.registerWidget({
-                    name = v.name,
-                    key = v.key,
-                    event = scriptModule.event,
-                    create = scriptModule.create,
-                    paint = scriptModule.paint,
-                    wakeup = scriptModule.wakeup,
-                    build = scriptModule.build,
-                    close = scriptModule.close,
-                    configure = scriptModule.configure,
-                    read = scriptModule.read,
-                    write = scriptModule.write,
-                    persistent = scriptModule.persistent or false,
-                    menu = scriptModule.menu,
-                    title = scriptModule.title
-                })
+                if v.type == "glasses" then
+                    -- we only register glasses widgets if the system supports them
+                    if system.registerGlassesWidget then
+                        rfsuite.sysIndex['widget_' .. v.folder] = system.registerGlassesWidget({
+                            key = v.key,
+                            name = v.name,
+                            create = scriptModule.create,
+                            build = scriptModule.build,
+                            wakeup = scriptModule.wakeup
+                        })
+                    end
+                else
+                    rfsuite.sysIndex['widget_' .. v.folder] = system.registerWidget({
+                        name = v.name,
+                        key = v.key,
+                        event = scriptModule.event,
+                        create = scriptModule.create,
+                        paint = scriptModule.paint,
+                        wakeup = scriptModule.wakeup,
+                        build = scriptModule.build,
+                        close = scriptModule.close,
+                        configure = scriptModule.configure,
+                        read = scriptModule.read,
+                        write = scriptModule.write,
+                        persistent = scriptModule.persistent or false,
+                        menu = scriptModule.menu,
+                        title = scriptModule.title
+                    })
+                end    
             else
                 rfsuite.utils.log("[widgets] widget did not return a module table: " .. path, "info")
             end

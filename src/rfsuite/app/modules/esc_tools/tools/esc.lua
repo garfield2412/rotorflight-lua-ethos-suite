@@ -8,6 +8,12 @@ local pageRuntime = assert(loadfile("app/lib/page_runtime.lua"))()
 local lcd = lcd
 local system = system
 
+local function loadMask(path)
+    local ui = rfsuite.app and rfsuite.app.ui
+    if ui and ui.loadMask then return ui.loadMask(path) end
+    return lcd.loadMask(path)
+end
+
 local pages = {}
 
 local function resolveModulePath(script)
@@ -43,6 +49,9 @@ local function findMFG()
                     rfsuite.utils.log("Invalid configuration in " .. init_path)
                 else
                     mconfig['folder'] = v
+                    if mconfig.apiversion and rfsuite.session.apiVersion and not rfsuite.utils.apiVersionCompare(">=", mconfig.apiversion) then
+                        mconfig.disabled = true
+                    end
                     table.insert(mfgsList, mconfig)
                 end
             end
@@ -61,6 +70,7 @@ local function openPage(opts)
 
     rfsuite.tasks.msp.protocol.mspIntervalOveride = nil
     rfsuite.session.escDetails = nil
+    rfsuite.session.escBuffer = nil
 
     rfsuite.app.triggers.isReady = false
     rfsuite.app.uiState = rfsuite.app.uiStatus.mainMenu
@@ -127,7 +137,7 @@ local function openPage(opts)
         if lc >= 0 then bx = (buttonW + padding) * lc end
 
         if rfsuite.preferences.general.iconsize ~= 0 then
-            if rfsuite.app.gfx_buttons["escmain"][childIdx] == nil then rfsuite.app.gfx_buttons["escmain"][childIdx] = lcd.loadMask("app/modules/esc_tools/tools/escmfg/" .. pvalue.folder .. "/" .. pvalue.image) end
+            if rfsuite.app.gfx_buttons["escmain"][childIdx] == nil then rfsuite.app.gfx_buttons["escmain"][childIdx] = loadMask("app/modules/esc_tools/tools/escmfg/" .. pvalue.folder .. "/" .. pvalue.image) end
         else
             rfsuite.app.gfx_buttons["escmain"][childIdx] = nil
         end
@@ -137,14 +147,18 @@ local function openPage(opts)
             icon = rfsuite.app.gfx_buttons["escmain"][childIdx],
             options = FONT_S,
             paint = function() end,
-            press = function()
-                rfsuite.preferences.menulastselected["escmain"] = childIdx
-                rfsuite.app.ui.progressDisplay(nil,nil,0.5)
+                press = function()
+                    rfsuite.preferences.menulastselected["escmain"] = childIdx
+                    rfsuite.app.ui.progressDisplay(nil,nil,0.5)
+                    local toolScript = "esc_tools/tools/esc_tool.lua"
+                    if pvalue.esc4way == true then
+                        toolScript = "esc_tools/tools/esc_tool_4way.lua"
+                    end
                     rfsuite.app.ui.openPage({
                         idx = childIdx,
                         title = title .. " / " .. pvalue.toolName,
                         folder = pvalue.folder,
-                        script = "esc_tools/tools/esc_tool.lua",
+                        script = toolScript,
                         returnContext = {idx = parentIdx, title = title, script = relativeScript or script}
                     })
                 end
