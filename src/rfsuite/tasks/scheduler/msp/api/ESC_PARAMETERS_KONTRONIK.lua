@@ -86,59 +86,27 @@ local function getFieldDefByName(fieldName)
     return nil
 end
 
--- Build simulator payload for Kontronik register format from field simResponse values.
--- Pair format in field simResponse:
---   {reg_lo, reg_hi, val_b0, val_b1, val_b2[, val_b3]}
-local function buildKontronikSimulatorResponse()
-    local out = {}
+-- Kontronik read formats:
+-- 1) Fixed slot format (FW paramVer=1):
+--    [1]      U8  esc_signature
+--    [2]      U8  param_version
+--    [3..18]  U128 esc_model (16 bytes, 0-terminated)
+--    [19]     U8  slot_count (=30)
+--    [20..80] fixed slot values:
+--             slots 1-27 and 29-30 as U16 LE
+--             slot 28 (reg 16388) as U24 LE
+local KONTRONIK_PARAM_SLOT_REGS = {
+    8202, 8206, 8208, 8214, 8216, 8218,
+    8220, 8226, 8228, 8230, 8232, 8234, 8236, 8246, 8252, 8254,
+    8264, 8266, 8268, 8270, 8272, 8274, 8276, 8278,
+    12346, 12352, 12354, 16388, 16432, 20480
+}
+local KONTRONIK_PARAM_SLOT_COUNT = #KONTRONIK_PARAM_SLOT_REGS
+local KONTRONIK_FIXED_PAYLOAD_BYTES = 18 + 1 + ((KONTRONIK_PARAM_SLOT_COUNT - 1) * 2) + 3
 
-    local sigDef = getFieldDefByName("esc_signature")
-    local cmdDef = getFieldDefByName("esc_command")
-    local modelDef = getFieldDefByName("esc_model")
-
-    out[#out + 1] = (sigDef and sigDef.simResponse and sigDef.simResponse[1]) or MSP_SIGNATURE
-    out[#out + 1] = (cmdDef and cmdDef.simResponse and cmdDef.simResponse[1]) or 0
-
-    if modelDef and modelDef.simResponse then
-        for i = 1, #modelDef.simResponse do out[#out + 1] = modelDef.simResponse[i] end
-    else
-        for i = 1, 16 do out[#out + 1] = 32 end
-    end
-
-    local pairs = {}
-    for _, def in ipairs(MSP_API_STRUCTURE_READ) do
-        local sr = def.simResponse
-        if type(sr) == "table" and #sr >= 5 and #sr <= 6 then
-            local regLo, regHi = sr[1], sr[2]
-            if type(regLo) == "number" and type(regHi) == "number" then
-                local entry = {}
-                for i = 1, #sr do entry[#entry + 1] = sr[i] end
-                pairs[#pairs + 1] = entry
-            end
-        end
-    end
-
-    out[#out + 1] = #pairs
-
-    for i = 1, #pairs do
-        local p = pairs[i]
-        for j = 1, #p do out[#out + 1] = p[j] end
-    end
-
-    return out
-end
-
-local KONTRONIK_SIMULATOR_RESPONSE = buildKontronikSimulatorResponse()
-
--- Kontronik fixed read format:
--- [1]   U8  esc_signature
--- [2]   U8  esc_command
--- [3..18] U128 esc_model (16 bytes, 0-terminated)
--- [19]  U8  pair_count
--- then pair_count * (U16 register_id + U24 value), all little-endian.
 local REG_TO_FIELD = {
-    [8202] = "undervoltage_cell"
-    --[8206] = "EMK_brake_positive",
+    [8202] = "undervoltage_cell",
+    [8206] = "EMK_brake_positive",
     [8208] = "bec_voltage",
     [8214] = "brake_position",
     [8216] = "off_position",
@@ -153,7 +121,7 @@ local REG_TO_FIELD = {
     [8238] = "discharge_limiter_act",
     [8246] = "telemetry",
     [8252] = "startup_curr_limit",
-    --[8254] = "EMK_brake_negative",
+    [8254] = "EMK_brake_negative",
     [8264] = "pole_number",
     [8266] = "gear_ratio",
     [8268] = "min_input_voltage",
@@ -162,8 +130,8 @@ local REG_TO_FIELD = {
     [8274] = "max_bec_temp",
     [8276] = "max_bec_current",
     [8278] = "max_discharge",
-    --[12352] = "min_brake_pos",
-    --[12354] = "max_brake_pos",
+    [12352] = "min_brake_pos",
+    [12354] = "max_brake_pos",
     [12346] = "PWM_min",
     [16388] = "summary_16388",
     [16432] = "max_rpm",
@@ -176,6 +144,7 @@ for reg, field in pairs(REG_TO_FIELD) do
 end
 
 local SUMMARY_REG = 16388
+local SLOT28_INDEX = 28
 local SUMMARY_BATTERY_MASK = 0x000C
 local ESC_WRITE_VERSION = 1 -- lower 6 bits in esc_ver_cmd
 local SUMMARY_FIELD_BITS = {
@@ -221,20 +190,9 @@ local function appendU24LE(out, value)
     out[#out + 1] = (value >> 16) & 0xFF
 end
 
-local function appendU32LE(out, value)
-    out[#out + 1] = value & 0xFF
-    out[#out + 1] = (value >> 8) & 0xFF
-    out[#out + 1] = (value >> 16) & 0xFF
-    out[#out + 1] = (value >> 24) & 0xFF
-end
-
-local function appendPairRegisterThenValue(out, reg, value)
-    appendU16LE(out, reg)
-    if reg == 16472 then
-        appendU32LE(out, value)
-    else
-        appendU24LE(out, value)
-    end
+local function appendSlotValue(out, slot, value)
+    appendU16LE(out, value)
+    if slot == SLOT28_INDEX then out[#out + 1] = (value >> 16) & 0xFF end
 end
 
 local function appendModel16(out, model)
@@ -249,73 +207,69 @@ local function appendModel16(out, model)
     end
 end
 
-local function buildKontronikWritePayload(values)
-    local pairsOut = {}
-    local pairCount = 0
-    local parsed = mspData and mspData.parsed or nil
-    local baseSummary = 0
-    if mspData and mspData.other and mspData.other.registers and mspData.other.registers[SUMMARY_REG] ~= nil then
-        baseSummary = mspData.other.registers[SUMMARY_REG]
-    end
-    local summary = baseSummary
-    local summaryTouched = false
+local function decodeSimValueFromDef(def)
+    local sr = def and def.simResponse
+    if type(sr) ~= "table" or #sr == 0 then return nil end
+    if def.type == "U8" then return sr[1] end
+    if def.type == "U16" and #sr >= 2 then return sr[1] | (sr[2] << 8) end
+    if def.type == "U24" and #sr >= 3 then return sr[1] | (sr[2] << 8) | (sr[3] << 16) end
+    return nil
+end
 
-    local function maybeNumber(v)
-        local n = tonumber(v)
-        if n == nil then return nil end
-        return math.floor(n + 0.5)
-    end
-
-    for _, def in ipairs(MSP_API_STRUCTURE_WRITE) do
-        local field = def.field
-        local value = maybeNumber(values[field])
-        if value ~= nil then
-            local oldValue = parsed and tonumber(parsed[field]) or nil
-            local changed = (oldValue == nil) or (math.floor(oldValue + 0.5) ~= value)
-            if not changed then goto continue end
-
-            local reg = FIELD_TO_REG[field]
-            if reg ~= nil then
-                appendPairRegisterThenValue(pairsOut, reg, value)
-                pairCount = pairCount + 1
-            elseif field == "battery_type" then
-                local bt = value & 0x03
-                summary = (summary & (~SUMMARY_BATTERY_MASK)) | ((bt << 2) & SUMMARY_BATTERY_MASK)
-                summaryTouched = true
-            elseif field == "how_adj_max_rpm" then
-                local mask = 0x0040
-                -- Bit set => "Stored in EEPROM" (table value 1), clear => "Idle up" (table value 0).
-                if value == 1 then summary = summary | mask else summary = summary & (~mask) end
-                summaryTouched = true
-            else
-                local mask = SUMMARY_FIELD_BITS[field]
-                if mask ~= nil then
-                    if value ~= 0 then summary = summary | mask else summary = summary & (~mask) end
-                    summaryTouched = true
-                end
-            end
-        end
-        ::continue::
-    end
-
-    if summaryTouched then
-        appendPairRegisterThenValue(pairsOut, SUMMARY_REG, summary)
-        pairCount = pairCount + 1
-    end
-
+-- Build simulator payload in fixed-slot paramVer=1 format.
+local function buildKontronikSimulatorResponse()
     local out = {}
-    local signature = (parsed and tonumber(parsed.esc_signature)) or MSP_SIGNATURE
-    local model = (parsed and parsed.esc_model) or ""
-    local escVerCmd = (ESC_WRITE_VERSION & 0x3F) -- upper 2 command bits currently 0
+    local regValues = {}
+    local summary = 0
 
-    out[#out + 1] = signature & 0xFF
-    out[#out + 1] = escVerCmd & 0xFF
-    appendModel16(out, model)
-    out[#out + 1] = pairCount & 0xFF
-    for i = 1, #pairsOut do out[#out + 1] = pairsOut[i] end
+    local sigDef = getFieldDefByName("esc_signature")
+    local verDef = getFieldDefByName("esc_command")
+    local modelDef = getFieldDefByName("esc_model")
+    local batteryDef = getFieldDefByName("battery_type")
+    local howAdjMaxRpmDef = getFieldDefByName("how_adj_max_rpm")
+
+    out[#out + 1] = (sigDef and sigDef.simResponse and sigDef.simResponse[1]) or MSP_SIGNATURE
+    out[#out + 1] = (verDef and verDef.simResponse and verDef.simResponse[1]) or ESC_WRITE_VERSION
+
+    if modelDef and modelDef.simResponse then
+        for i = 1, 16 do out[#out + 1] = modelDef.simResponse[i] or 0 end
+    else
+        for i = 1, 16 do out[#out + 1] = 0 end
+    end
+
+    for _, def in ipairs(MSP_API_STRUCTURE_READ) do
+        local reg = FIELD_TO_REG[def.field]
+        if reg ~= nil then
+            local n = decodeSimValueFromDef(def)
+            if n ~= nil then regValues[reg] = n end
+        end
+    end
+
+    local batteryType = decodeSimValueFromDef(batteryDef) or 0
+    summary = summary | (((batteryType & 0x03) << 2) & SUMMARY_BATTERY_MASK)
+
+    local howAdj = decodeSimValueFromDef(howAdjMaxRpmDef) or 0
+    if howAdj == 1 then summary = summary | 0x0040 end
+
+    for field, mask in pairs(SUMMARY_FIELD_BITS) do
+        local def = getFieldDefByName(field)
+        local n = decodeSimValueFromDef(def)
+        if n ~= nil and n ~= 0 then summary = summary | mask end
+    end
+
+    if regValues[SUMMARY_REG] == nil then regValues[SUMMARY_REG] = summary end
+
+    out[#out + 1] = KONTRONIK_PARAM_SLOT_COUNT
+    for slot = 1, KONTRONIK_PARAM_SLOT_COUNT do
+        local reg = KONTRONIK_PARAM_SLOT_REGS[slot]
+        local value = regValues[reg] or 0
+        appendSlotValue(out, slot, value)
+    end
 
     return out
 end
+
+local KONTRONIK_SIMULATOR_RESPONSE = buildKontronikSimulatorResponse()
 
 local function readU16LE(buf, pos)
     local b0 = buf[pos]
@@ -332,18 +286,11 @@ local function readU24LE(buf, pos)
     return b0 | (b1 << 8) | (b2 << 16), pos + 3
 end
 
-local REG_VALUE_BYTES = {
-    [16472] = 4 -- Kontronik summary extension register (U32)
-}
-
-local function readULE(buf, pos, byteCount)
-    local value = 0
-    for i = 0, byteCount - 1 do
-        local b = buf[pos + i]
-        if b == nil then return nil end
-        value = value | (b << (8 * i))
+local function readSlotValue(buf, pos, slot)
+    if slot == SLOT28_INDEX then
+        return readU24LE(buf, pos)
     end
-    return value, pos + byteCount
+    return readU16LE(buf, pos)
 end
 
 local function parseKontronikReadBuffer(buf)
@@ -354,8 +301,8 @@ local function parseKontronikReadBuffer(buf)
         return nil, "invalid signature (" .. tostring(signature) .. ")"
     end
 
-    local command = buf[2]
-    if command == nil then return nil, "missing command byte" end
+    local paramVersion = buf[2]
+    if paramVersion == nil then return nil, "missing version byte" end
 
     local modelChars = {}
     for i = 3, 18 do
@@ -366,35 +313,30 @@ local function parseKontronikReadBuffer(buf)
     end
     local model = table.concat(modelChars)
 
-    local pairCount = buf[19]
-    if pairCount == nil then return nil, "missing register pair count" end
-    local pos = 20
-
     local parsed = {
         esc_signature = signature,
-        esc_command = command,
+        esc_command = paramVersion,
         esc_model = model
     }
 
     local registers = {}
-    for i = 1, pairCount do
-        local reg
-        reg, pos = readU16LE(buf, pos)
-        if reg == nil then
-            return nil, "truncated register id at pair " .. tostring(i)
-        end
+    local slotCount = buf[19]
+    local pos = 20
+    if slotCount ~= KONTRONIK_PARAM_SLOT_COUNT then
+        return nil, "invalid slot count (" .. tostring(slotCount) .. "), expected " .. tostring(KONTRONIK_PARAM_SLOT_COUNT)
+    end
+    if #buf ~= KONTRONIK_FIXED_PAYLOAD_BYTES then
+        return nil, "invalid payload length (" .. tostring(#buf) .. "), expected " .. tostring(KONTRONIK_FIXED_PAYLOAD_BYTES)
+    end
 
-        local valueBytes = REG_VALUE_BYTES[reg] or 3
+    for slot = 1, KONTRONIK_PARAM_SLOT_COUNT do
         local value
-        if valueBytes == 3 then
-            value, pos = readU24LE(buf, pos)
-        else
-            value, pos = readULE(buf, pos, valueBytes)
-        end
+        value, pos = readSlotValue(buf, pos, slot)
         if value == nil then
-            return nil, "truncated register value at pair " .. tostring(i) .. " (reg " .. tostring(reg) .. ")"
+            return nil, "truncated slot value at slot " .. tostring(slot)
         end
 
+        local reg = KONTRONIK_PARAM_SLOT_REGS[slot]
         registers[reg] = value
 
         local fieldName = REG_TO_FIELD[reg]
@@ -479,7 +421,7 @@ local function write(suppliedPayload)
         -- Keep compatibility with callers that pass a prebuilt byte stream.
         payload = suppliedPayload
     else
-        payload = buildKontronikWritePayload(payloadData)
+        return false, "prebuilt_payload_required"
     end
     if type(payload) ~= "table" or #payload == 0 then
         return false, "empty_payload"
