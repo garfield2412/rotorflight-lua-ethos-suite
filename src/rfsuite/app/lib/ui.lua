@@ -16,8 +16,57 @@ local tableConcat = table.concat
 local mathFloor = math.floor
 local app = rfsuite.app
 local session = rfsuite.session
+local rfutils = rfsuite.utils
 
 local ui = {}
+
+local function wipeTable(t)
+    if type(t) ~= "table" then return end
+    for k in pairs(t) do t[k] = nil end
+end
+
+local function NOOP_PAINT() end
+
+local MASK_CACHE_MAX = 16  -- a small cache for recently used masks; evict old entries to avoid unbounded memory growth.
+ui._maskCache = ui._maskCache or {}
+ui._maskCacheOrder = ui._maskCacheOrder or {}
+
+local function maskCacheInsert(path, mask)
+    local cache = ui._maskCache
+    local order = ui._maskCacheOrder
+    if cache[path] ~= nil then return end
+
+    cache[path] = mask
+    order[#order + 1] = path
+
+    while #order > MASK_CACHE_MAX do
+        local evictPath = order[1]
+        table.remove(order, 1)
+        if evictPath ~= nil then
+            cache[evictPath] = nil
+        end
+    end
+end
+
+function ui.loadMask(path)
+    if type(path) ~= "string" or path == "" then return nil end
+
+    local cached = ui._maskCache[path]
+    if cached ~= nil then
+        if cached == false then return nil end
+        return cached
+    end
+
+    local mask = lcdLoadMask(path)
+    -- Cache misses too so bad/optional paths do not repeatedly allocate/check.
+    maskCacheInsert(path, mask or false)
+    return mask
+end
+
+function ui.clearMaskCaches()
+    wipeTable(ui._maskCache)
+    wipeTable(ui._maskCacheOrder)
+end
 
 local arg = {...}
 local config = arg[1]
@@ -33,6 +82,8 @@ local MAIN_MENU_CATEGORY_SYSTEM = "@i18n(app.header_system)@"
 local HEADER_NAV_HEIGHT_REDUCTION = 4
 local HEADER_NAV_Y_SHIFT = 6
 local HEADER_OVERLAY_Y_OFFSET = 5
+local MENU_TRANSITION_PROGRESS = false
+local NAV_FOCUS_ORDER = {"menu", "save", "reload", "tool", "help"}
 
 local function isManifestMenuRouterScript(script)
     return type(script) == "string" and (script == "manifest_menu/menu.lua" or script == "app/modules/manifest_menu/menu.lua")
@@ -544,6 +595,16 @@ end
 
 function ui.clearProgressDialog(handle)
     if not session or not session.progressDialog then return end
+
+    if app and app.dialogs then
+        if handle == nil or app.dialogs.progress == handle then
+            app.dialogs.progress = nil
+        end
+        if handle == nil or app.dialogs.save == handle then
+            app.dialogs.save = nil
+        end
+    end
+
     if handle == nil or session.progressDialog.handle == handle then
         session.progressDialog = nil
     end
@@ -591,7 +652,9 @@ local function getApiCore()
 end
 
 function ui.openMenuContext(defaultSectionId, showProgress, speed)
-    if showProgress then ui.progressDisplay(nil, nil, speed) end
+    -- Keep menu transitions allocation-light; opening/closing progress dialogs here
+    -- can cause substantial native-memory churn on some radios.
+    if MENU_TRANSITION_PROGRESS and showProgress then ui.progressDisplay(nil, nil, speed) end
 
     local target, parentStack = navigation.popReturnContext(app)
     if target then
@@ -620,7 +683,7 @@ function ui.openMenuContext(defaultSectionId, showProgress, speed)
 end
 
 local function openProgressDialog(opts)
-    if utils.ethosVersionAtLeast({1, 7, 0}) and form.openWaitDialog then
+    if utils.ethosVersionAtLeast({26, 1, 0}) and form.openWaitDialog then
         opts.progress = true
         return form.openWaitDialog(opts)
     end
@@ -648,7 +711,7 @@ function ui.progressDisplay(title, message, speed)
     app.dialogs.progressWatchDog = osClock()
     app.dialogs.progressBaseMessage = message
     app.dialogs.progressMspStatusLast = nil
-    local useWaitDialog = utils.ethosVersionAtLeast({1, 7, 0}) and form.openWaitDialog
+    local useWaitDialog = utils.ethosVersionAtLeast({26, 1, 0}) and form.openWaitDialog
     app.dialogs.progressIsWait = useWaitDialog or false
     app.dialogs.progress = openProgressDialog({
         title = title,
@@ -656,8 +719,14 @@ function ui.progressDisplay(title, message, speed)
         close = function() end,
         wakeup = function()
             local now = osClock()
+            local progress = app.dialogs.progress
+            if not progress then
+                app.dialogs.progressDisplay = false
+                app.dialogs.progressSpeed = nil
+                return
+            end
 
-            app.dialogs.progress:value(app.dialogs.progressCounter)
+            progress:value(app.dialogs.progressCounter)
 
             local mult = app.dialogs.progressSpeed or 1.0
 
@@ -671,8 +740,8 @@ function ui.progressDisplay(title, message, speed)
                 app.dialogs.progressCounter = app.dialogs.progressCounter + (3 * mult)
             elseif app.triggers.closeProgressLoader and tasks.msp and tasks.msp.mspQueue:isProcessed() then
                 if app.dialogs.progressIsWait then
-                    app.dialogs.progress:close()
-                    ui.clearProgressDialog(app.dialogs.progress)
+                    progress:close()
+                    ui.clearProgressDialog(progress)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.triggers.closeProgressLoader = false
@@ -683,17 +752,19 @@ function ui.progressDisplay(title, message, speed)
                 if preferences.general.hs_loader == 0 then mult = mult * 2 end
                 app.dialogs.progressCounter = app.dialogs.progressCounter + (15 * mult)
                 if app.dialogs.progressCounter >= 100 then
-                    app.dialogs.progress:close()
-                    ui.clearProgressDialog(app.dialogs.progress)
+                    progress:close()
+                    ui.clearProgressDialog(progress)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.triggers.closeProgressLoader = false
                     app.dialogs.progressSpeed = nil
+                    app.triggers.closeProgressLoaderNoisProcessed = false
+                    return
                 end
             elseif app.triggers.closeProgressLoader and app.triggers.closeProgressLoaderNoisProcessed then
                 if app.dialogs.progressIsWait then
-                    app.dialogs.progress:close()
-                    ui.clearProgressDialog(app.dialogs.progress)
+                    progress:close()
+                    ui.clearProgressDialog(progress)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.triggers.closeProgressLoader = false
@@ -704,45 +775,55 @@ function ui.progressDisplay(title, message, speed)
                 if preferences.general.hs_loader == 0 then mult = mult * 1.5 end
                 app.dialogs.progressCounter = app.dialogs.progressCounter + (15 * mult)
                 if app.dialogs.progressCounter >= 100 then
-                    app.dialogs.progress:close()
-                    ui.clearProgressDialog(app.dialogs.progress)
+                    progress:close()
+                    ui.clearProgressDialog(progress)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.triggers.closeProgressLoader = false
                     app.dialogs.progressSpeed = nil
                     app.triggers.closeProgressLoaderNoisProcessed = false
-
+                    return
                 end
             end
 
             if app.dialogs.progressWatchDog and tasks.msp and (osClock() - app.dialogs.progressWatchDog) > tonumber(tasks.msp.protocol.pageReqTimeout) and app.dialogs.progressDisplay == true and reachedTimeout == false then
                 reachedTimeout = true
+                if app.pageState == app.pageStatus.rebooting or (app.triggers and app.triggers.rebootInProgress) or (session and session.resetMSP) then
+                    app.dialogs.progressCounter = 0
+                    app.dialogs.progressSpeed = nil
+                    app.dialogs.progressDisplay = false
+                    app.dialogs.progressWatchDog = nil
+                    app.triggers.closeProgressLoader = false
+                    app.triggers.closeProgressLoaderNoisProcessed = false
+                    pcall(function() progress:close() end)
+                    ui.clearProgressDialog(progress)
+                    return
+                end
                 app.audio.playTimeout = true
-                app.dialogs.progress:message("@i18n(app.error_timed_out)@")
-                app.dialogs.progress:closeAllowed(true)
-                app.dialogs.progress:value(100)
-                ui.clearProgressDialog(app.dialogs.progress)
-                app.Page = app.PageTmp
-                app.PageTmp = nil
+                progress:message("@i18n(app.error_timed_out)@")
+                progress:closeAllowed(true)
+                progress:value(100)
+                ui.clearProgressDialog(progress)
                 app.dialogs.progressCounter = 0
                 app.dialogs.progressSpeed = nil
                 app.dialogs.progressDisplay = false
 
                 ui.disableAllFields()
                 ui.disableAllNavigationFields()
-                ui.enableNavigationField('menu')                
+                ui.enableNavigationField('menu')
+                return
 
             end
 
             if not tasks.msp then
                 app.dialogs.progressCounter = app.dialogs.progressCounter + (2 * mult)
                 if app.dialogs.progressCounter >= 100 then
-                    app.dialogs.progress:close()
-                    ui.clearProgressDialog(app.dialogs.progress)
+                    progress:close()
+                    ui.clearProgressDialog(progress)
                     app.dialogs.progressDisplay = false
                     app.dialogs.progressCounter = 0
                     app.dialogs.progressSpeed = nil
-
+                    return
                 end
             end
 
@@ -750,7 +831,7 @@ function ui.progressDisplay(title, message, speed)
             local showDebug = preferences and preferences.general and preferences.general.mspstatusdialog
             local msg = showDebug and (mspStatus or MSP_DEBUG_PLACEHOLDER) or (app.dialogs.progressBaseMessage or "")
             if showDebug and mspStatus then msg = mspStatus end
-            app.dialogs.progress:message(msg)
+            pcall(function() progress:message(msg) end)
 
         end
     })
@@ -777,7 +858,7 @@ function ui.progressDisplaySave(message)
     local title = "@i18n(app.msg_saving)@"
     app.dialogs.saveBaseMessage = resolvedMessage
 
-    local useWaitDialog = utils.ethosVersionAtLeast({1, 7, 0}) and form.openWaitDialog
+    local useWaitDialog = utils.ethosVersionAtLeast({26, 1, 0}) and form.openWaitDialog
     app.dialogs.saveIsWait = useWaitDialog or false
     app.dialogs.save = openProgressDialog({
         title = title,
@@ -843,8 +924,21 @@ function ui.progressDisplaySave(message)
             end
 
             local timeout = tonumber(tasks.msp.protocol.saveTimeout + 5)
-            if (app.dialogs.saveWatchDog and (osClock() - app.dialogs.saveWatchDog) > timeout) and reachedTimeout == false or (app.dialogs.saveProgressCounter > 120 and tasks.msp.mspQueue:isProcessed()) and app.dialogs.saveDisplay == true and reachedTimeout == false then
+            local watchdogExceeded = app.dialogs.saveWatchDog and (osClock() - app.dialogs.saveWatchDog) > timeout
+            local progressExceeded = (app.dialogs.saveProgressCounter > 120 and tasks.msp.mspQueue:isProcessed())
+            if (watchdogExceeded or progressExceeded) and app.dialogs.saveDisplay == true and reachedTimeout == false then
                 reachedTimeout = true
+                if app.pageState == app.pageStatus.rebooting or (app.triggers and app.triggers.rebootInProgress) then
+                    app.dialogs.saveProgressCounter = 0
+                    app.dialogs.saveDisplay = false
+                    app.dialogs.saveWatchDog = nil
+                    app.triggers.isSaving = false
+                    app.triggers.closeSave = false
+                    app.triggers.closeSaveFake = false
+                    pcall(function() app.dialogs.save:close() end)
+                    ui.clearProgressDialog(app.dialogs.save)
+                    return
+                end
                 app.audio.playTimeout = true
                 app.dialogs.save:message("@i18n(app.error_timed_out)@")
                 app.dialogs.save:closeAllowed(true)
@@ -853,8 +947,6 @@ function ui.progressDisplaySave(message)
                 app.dialogs.saveDisplay = false
                 app.triggers.isSaving = false
                 ui.clearProgressDialog(app.dialogs.save)
-                app.Page = app.PageTmp
-                app.PageTmp = nil
 
             end
 
@@ -880,16 +972,27 @@ end
 function ui.disableAllFields()
 
 
-    for i = 1, #app.formFields do
-        local field = app.formFields[i]
-        if type(field) == "userdata" then field:enable(false) end
+    for _, field in pairs(app.formFields) do
+        if type(field) == "userdata" then
+            local ok, enableFn = pcall(function() return field.enable end)
+            if ok and type(enableFn) == "function" then
+                field:enable(false)
+            end
+        end
     end
 end
 
 function ui.enableAllFields()
 
 
-    for _, field in ipairs(app.formFields) do if type(field) == "userdata" then field:enable(true) end end
+    for _, field in pairs(app.formFields) do
+        if type(field) == "userdata" then
+            local ok, enableFn = pcall(function() return field.enable end)
+            if ok and type(enableFn) == "function" then
+                field:enable(true)
+            end
+        end
+    end
 end
 
 function ui.disableAllNavigationFields()
@@ -930,6 +1033,7 @@ function ui.cleanupCurrentPage()
         local apidata = tasks and tasks.msp and tasks.msp.api and tasks.msp.api.apidata
         local apiLoader = tasks and tasks.msp and tasks.msp.api
         local cbq = tasks and tasks.callback and tasks.callback._queue
+        local cacheStats = utils and utils.getCacheStats and utils.getCacheStats() or nil
         local pageLabel = (app and app.lastScript) or (app and app.Page and app.Page.pageTitle) or "?"
         local function gfxMaskCount()
             if not app or type(app.gfx_buttons) ~= "table" then return 0 end
@@ -942,7 +1046,7 @@ function ui.cleanupCurrentPage()
             return total
         end
         utils.log(string.format(
-            "[mem] cleanup start: %.1f KB | page=%s | apidata v=%d s=%d b=%d bc=%d p=%d o=%d | apiCache file=%d chunk=%d | help=%d gfx=%d cbq=%d",
+            "[mem] cleanup start: %.1f KB | page=%s | apidata v=%d s=%d b=%d bc=%d p=%d o=%d | apiCache file=%d chunk=%d | help=%d gfx=%d mask=%d cbq=%d",
             mem_kb, tostring(pageLabel),
             tcount(apidata and apidata.values),
             tcount(apidata and apidata.structure),
@@ -954,6 +1058,7 @@ function ui.cleanupCurrentPage()
             tcount(apiLoader and apiLoader._chunkCache),
             tcount(ui._helpCache),
             gfxMaskCount(),
+            tcount(ui._maskCache),
             tcount(cbq)
         ), "debug")
     end
@@ -994,14 +1099,19 @@ function ui.cleanupCurrentPage()
         end
 
         if app.Page.apidata.api then for i = 1, #app.Page.apidata.api do app.Page.apidata.api[i] = nil end end
-        if app.Page.apidata.api_reversed then for i = 1, #app.Page.apidata.api_reversed do app.Page.apidata.api_reversed[i] = nil end end
+        if app.Page.apidata.api_reversed then
+            for k in pairs(app.Page.apidata.api_reversed) do app.Page.apidata.api_reversed[k] = nil end
+        end
+        if app.Page.apidata.api_by_id then
+            for k in pairs(app.Page.apidata.api_by_id) do app.Page.apidata.api_by_id[k] = nil end
+        end
 
         app.Page.apidata = nil
     end
 
-    if app.formFields then for i = 1, #app.formFields do app.formFields[i] = nil end end
-    if app.formLines then for i = 1, #app.formLines do app.formLines[i] = nil end end
-    if app.formNavigationFields then for k in pairs(app.formNavigationFields) do app.formNavigationFields[k] = nil end end
+    wipeTable(app.formFields)
+    wipeTable(app.formLines)
+    wipeTable(app.formNavigationFields)
     if app.gfx_buttons then
         for k in pairs(app.gfx_buttons) do
             app.gfx_buttons[k] = nil
@@ -1009,15 +1119,20 @@ function ui.cleanupCurrentPage()
     end
 
     app.fieldHelpTxt = nil
+    app._fieldHelpSection = nil
     ui._helpCache = {}
+    if tasks and tasks.msp and tasks.msp.api and tasks.msp.api.clearHelpCache then
+        tasks.msp.api.clearHelpCache()
+    end
 
     app.Page = nil
-    app.PageTmp = nil
 
     collectgarbage('collect')
 
-    if preferences and preferences.developer and preferences.developer.memstats then
-        local mem_kb = collectgarbage("count")
+    local dev = preferences and preferences.developer
+    local logMem = dev and dev.memstats == true
+    local logCache = dev and dev.logcachestats == true
+    if logMem or logCache then
         local function tcount(t)
             if type(t) ~= "table" then return 0 end
             local n = 0
@@ -1027,6 +1142,7 @@ function ui.cleanupCurrentPage()
         local apidata = tasks and tasks.msp and tasks.msp.api and tasks.msp.api.apidata
         local apiLoader = tasks and tasks.msp and tasks.msp.api
         local cbq = tasks and tasks.callback and tasks.callback._queue
+        local cacheStats = (logCache and utils and utils.getCacheStats and utils.getCacheStats()) or nil
         local pageLabel = (app and app.lastScript) or (app and app.Page and app.Page.pageTitle) or "?"
         local function gfxMaskCount()
             if not app or type(app.gfx_buttons) ~= "table" then return 0 end
@@ -1038,21 +1154,47 @@ function ui.cleanupCurrentPage()
             end
             return total
         end
-        utils.log(string.format(
-            "[mem] cleanup end: %.1f KB | page=%s | apidata v=%d s=%d b=%d bc=%d p=%d o=%d | apiCache file=%d chunk=%d | help=%d gfx=%d cbq=%d",
-            mem_kb, tostring(pageLabel),
-            tcount(apidata and apidata.values),
-            tcount(apidata and apidata.structure),
-            tcount(apidata and apidata.receivedBytes),
-            tcount(apidata and apidata.receivedBytesCount),
-            tcount(apidata and apidata.positionmap),
-            tcount(apidata and apidata.other),
-            tcount(apiLoader and apiLoader._fileExistsCache),
-            tcount(apiLoader and apiLoader._chunkCache),
-            tcount(ui._helpCache),
-            gfxMaskCount(),
-            tcount(cbq)
-        ), "debug")
+        if logMem then
+            local mem_kb = collectgarbage("count")
+            local cacheSuffix = ""
+            if logCache then
+                cacheSuffix = string.format(
+                    " | caches imgBmp=%d imgPath=%d file=%d dir=%d mask=%d",
+                    (cacheStats and cacheStats.imageBitmap) or 0,
+                    (cacheStats and cacheStats.imagePath) or 0,
+                    (cacheStats and cacheStats.fileExists) or 0,
+                    (cacheStats and cacheStats.dirExists) or 0,
+                    tcount(ui._maskCache)
+                )
+            end
+            utils.log(string.format(
+                "[mem] cleanup end: %.1f KB | page=%s | apidata v=%d s=%d b=%d bc=%d p=%d o=%d | apiCache file=%d chunk=%d | help=%d gfx=%d mask=%d cbq=%d%s",
+                mem_kb, tostring(pageLabel),
+                tcount(apidata and apidata.values),
+                tcount(apidata and apidata.structure),
+                tcount(apidata and apidata.receivedBytes),
+                tcount(apidata and apidata.receivedBytesCount),
+                tcount(apidata and apidata.positionmap),
+                tcount(apidata and apidata.other),
+                tcount(apiLoader and apiLoader._fileExistsCache),
+                tcount(apiLoader and apiLoader._chunkCache),
+                tcount(ui._helpCache),
+                gfxMaskCount(),
+                tcount(ui._maskCache),
+                tcount(cbq),
+                cacheSuffix
+            ), "info")
+        elseif logCache then
+            utils.log(string.format(
+                "[cache] cleanup end: page=%s | imgBmp=%d imgPath=%d file=%d dir=%d mask=%d",
+                tostring(pageLabel),
+                (cacheStats and cacheStats.imageBitmap) or 0,
+                (cacheStats and cacheStats.imagePath) or 0,
+                (cacheStats and cacheStats.fileExists) or 0,
+                (cacheStats and cacheStats.dirExists) or 0,
+                tcount(ui._maskCache)
+            ), "info")
+        end
     end
 end
 
@@ -1060,9 +1202,9 @@ function ui.resetPageState(activesection)
 
     ui.cleanupCurrentPage()
 
-    if app.formFields then for i = 1, #app.formFields do app.formFields[i] = nil end end
+    wipeTable(app.formFields)
 
-    if app.formLines then for i = 1, #app.formLines do app.formLines[i] = nil end end
+    wipeTable(app.formLines)
 
     app.formFieldsOffline = {}
     app.formFieldsBGTask = {}
@@ -1152,7 +1294,6 @@ local function openMenuSectionById(sectionId)
         local speed = tonumber(section.loaderspeed) or (app.loaderSpeed and app.loaderSpeed.DEFAULT) or 1.0
         app.pendingManifestMenuId = section.menuId
         app.isOfflinePage = section.offline == true
-        app.ui.progressDisplay(nil, nil, speed)
         app.ui.openPage({
             idx = sectionIndex,
             title = section.title,
@@ -1164,6 +1305,59 @@ local function openMenuSectionById(sectionId)
     end
 
     return false
+end
+
+local function getMainMenuPressHandler(menuIndex)
+    app._mainMenuPressHandlers = app._mainMenuPressHandlers or {}
+    local handlers = app._mainMenuPressHandlers
+    if handlers[menuIndex] then return handlers[menuIndex] end
+
+    handlers[menuIndex] = function()
+        local specs = app._mainMenuPressSpecs
+        local spec = specs and specs[menuIndex]
+        if type(spec) ~= "table" then return end
+
+        local menuItem = spec.item
+        if type(menuItem) ~= "table" then return end
+
+        preferences.menulastselected["mainmenu"] = menuIndex
+        if type(menuItem.id) == "string" and menuItem.id ~= "" then
+            app.lastMenu = menuItem.id
+        end
+
+        local speed = tonumber(menuItem.loaderspeed) or (app.loaderSpeed and app.loaderSpeed.DEFAULT) or 1.0
+        if menuItem.module then
+            app.isOfflinePage = true
+            local script, speedOverride = resolvePageScript(menuItem)
+            if speedOverride ~= nil then
+                speed = tonumber(speedOverride) or (app.loaderSpeed and app.loaderSpeed[speedOverride]) or speed
+            end
+            local targetScript = resolveModuleScriptPath(menuItem.module, script) or resolveModuleScriptPath(menuItem.module, menuItem.script)
+            if not targetScript then return end
+            app.ui.progressDisplay(nil, nil, speed)
+            app.ui.openPage({
+                idx = menuIndex,
+                title = menuItem.title,
+                script = targetScript,
+                openedFromShortcuts = (menuItem.group == "shortcuts")
+            })
+        elseif type(menuItem.menuId) == "string" and menuItem.menuId ~= "" then
+            app.isOfflinePage = menuItem.offline == true
+            app.pendingManifestMenuId = menuItem.menuId
+            app.ui.openPage({
+                idx = menuIndex,
+                title = menuItem.title,
+                script = "manifest_menu/menu.lua",
+                menuId = menuItem.menuId,
+                openedFromShortcuts = (menuItem.group == "shortcuts")
+            })
+        else
+            app.ui.progressDisplay(nil, nil, speed)
+            app.ui.openMainMenu(menuItem.id)
+        end
+    end
+
+    return handlers[menuIndex]
 end
 
 function ui.openMainMenu(activesection)
@@ -1233,6 +1427,8 @@ function ui.openMainMenu(activesection)
 
     local pidx = 0
     local activeMenuGroup = nil
+    app._mainMenuPressSpecs = app._mainMenuPressSpecs or {}
+    wipeTable(app._mainMenuPressSpecs)
     for _, pvalue in ipairs(Menu) do
         if pvalue.parent == nil then
             local menuItem = pvalue
@@ -1268,53 +1464,18 @@ function ui.openMainMenu(activesection)
                 bx = (buttonW + padding) * lc
 
                 if preferences.general.iconsize ~= 0 then
-                    app.gfx_buttons["mainmenu"][menuIndex] = app.gfx_buttons["mainmenu"][menuIndex] or lcdLoadMask(menuItem.image)
+                    app.gfx_buttons["mainmenu"][menuIndex] = ui.loadMask(menuItem.image)
                 else
                     app.gfx_buttons["mainmenu"][menuIndex] = nil
                 end
 
+                app._mainMenuPressSpecs[menuIndex] = {item = menuItem}
                 app.formFields[menuIndex] = form.addButton(line, {x = bx, y = y, w = buttonW, h = buttonH}, {
                     text = menuItem.title,
                     icon = app.gfx_buttons["mainmenu"][menuIndex],
                     options = FONT_S,
-                    paint = function() end,
-                    press = function()
-                        preferences.menulastselected["mainmenu"] = menuIndex
-                        if type(menuItem.id) == "string" and menuItem.id ~= "" then
-                            app.lastMenu = menuItem.id
-                        end
-                        local speed = tonumber(menuItem.loaderspeed) or (app.loaderSpeed and app.loaderSpeed.DEFAULT) or 1.0
-                        if menuItem.module then
-                            app.isOfflinePage = true
-                            local script, speedOverride = resolvePageScript(menuItem)
-                            if speedOverride ~= nil then
-                                speed = tonumber(speedOverride) or (app.loaderSpeed and app.loaderSpeed[speedOverride]) or speed
-                            end
-                            local targetScript = resolveModuleScriptPath(menuItem.module, script) or resolveModuleScriptPath(menuItem.module, menuItem.script)
-                            if not targetScript then return end
-                            app.ui.progressDisplay(nil, nil, speed)
-                            app.ui.openPage({
-                                idx = menuIndex,
-                                title = menuItem.title,
-                                script = targetScript,
-                                openedFromShortcuts = (menuItem.group == "shortcuts")
-                            })
-                        elseif type(menuItem.menuId) == "string" and menuItem.menuId ~= "" then
-                            app.isOfflinePage = menuItem.offline == true
-                            app.pendingManifestMenuId = menuItem.menuId
-                            app.ui.progressDisplay(nil, nil, speed)
-                            app.ui.openPage({
-                                idx = menuIndex,
-                                title = menuItem.title,
-                                script = "manifest_menu/menu.lua",
-                                menuId = menuItem.menuId,
-                                openedFromShortcuts = (menuItem.group == "shortcuts")
-                            })
-                        else
-                            app.ui.progressDisplay(nil, nil, speed)
-                            app.ui.openMainMenu(menuItem.id)
-                        end
-                    end
+                    paint = NOOP_PAINT,
+                    press = getMainMenuPressHandler(menuIndex)
                 })
 
                 app.formFields[menuIndex]:enable(false)
@@ -1569,7 +1730,8 @@ function ui.fieldSlider(i,lf)
 
     if f.help or f.apikey then
         if not f.help and f.apikey then f.help = f.apikey end
-        if app.fieldHelpTxt and app.fieldHelpTxt[f.help] and app.fieldHelpTxt[f.help].t then currentField:help(app.fieldHelpTxt[f.help].t) end
+        local fieldHelpTxt = ui.getFieldHelpTxt()
+        if fieldHelpTxt and fieldHelpTxt[f.help] and fieldHelpTxt[f.help].t then currentField:help(fieldHelpTxt[f.help].t) end
     end
 
 end
@@ -1616,7 +1778,7 @@ function ui.fieldNumber(i,lf)
 
     if f.default then
         if f.offset then f.default = f.default + f.offset end
-        local default = f.default * app.utils.decimalInc(f.decimals)
+        local default = f.default * rfutils.decimalInc(f.decimals)
         if f.mult then default = default * f.mult end
         local str = tostring(default)
         if str:match("%.0$") then default = math.ceil(default) end
@@ -1632,7 +1794,8 @@ function ui.fieldNumber(i,lf)
 
     if f.help or f.apikey then
         if not f.help and f.apikey then f.help = f.apikey end
-        if app.fieldHelpTxt and app.fieldHelpTxt[f.help] and app.fieldHelpTxt[f.help].t then currentField:help(app.fieldHelpTxt[f.help].t) end
+        local fieldHelpTxt = ui.getFieldHelpTxt()
+        if fieldHelpTxt and fieldHelpTxt[f.help] and fieldHelpTxt[f.help].t then currentField:help(fieldHelpTxt[f.help].t) end
     end
 
     if f.instantChange == false then
@@ -1868,7 +2031,10 @@ function ui.fieldText(i,lf)
     if f.onFocus then currentField:onFocus(function() f.onFocus(page) end) end
     if f.disable then currentField:enable(false) end
 
-    if f.help and app.fieldHelpTxt and app.fieldHelpTxt[f.help] and app.fieldHelpTxt[f.help].t then currentField:help(app.fieldHelpTxt[f.help].t) end
+    if f.help then
+        local fieldHelpTxt = ui.getFieldHelpTxt()
+        if fieldHelpTxt and fieldHelpTxt[f.help] and fieldHelpTxt[f.help].t then currentField:help(fieldHelpTxt[f.help].t) end
+    end
 
     if f.instantChange == false then
         currentField:enableInstantChange(false)
@@ -2023,13 +2189,40 @@ function ui.openPageRefresh(opts)
     app.triggers.isReady = false
 end
 
+
 ui._helpCache = ui._helpCache or {}
+ui._helpExistsCache = ui._helpExistsCache or {}
+
+local function resolveHelpContext(scriptPath)
+    if type(scriptPath) ~= "string" then return nil, nil end
+
+    local normalized = scriptPath
+    if normalized:sub(1, 12) == "app/modules/" then
+        normalized = normalized:sub(13)
+    end
+
+    local section = normalized:match("([^/]+)")
+    local script = normalized:match("/([^/]+)%.lua$")
+    return section, script
+end
+
+local function sectionHasHelpFile(section)
+    if type(section) ~= "string" or section == "" then return false end
+
+    if ui._helpExistsCache[section] == nil then
+        local helpPath = "app/modules/" .. section .. "/help.lua"
+        ui._helpExistsCache[section] = (utils.file_exists(helpPath) == true)
+    end
+
+    return ui._helpExistsCache[section] == true
+end
 
 local function getHelpData(section)
-    if ui._helpCache[section] == nil then
-        local helpPath = "app/modules/" .. section .. "/help.lua"
+    if type(section) ~= "string" or section == "" then return nil end
 
-        if utils.file_exists(helpPath) then
+    if ui._helpCache[section] == nil then
+        if sectionHasHelpFile(section) then
+            local helpPath = "app/modules/" .. section .. "/help.lua"
             local chunk = loadfile(helpPath)
             local helpData = chunk and chunk() or nil
 
@@ -2041,6 +2234,40 @@ local function getHelpData(section)
     end
 
     return ui._helpCache[section] or nil
+end
+
+function ui.getFieldHelpTxt()
+    local section = resolveHelpContext(app.lastScript)
+    if not section then
+        app.fieldHelpTxt = nil
+        app._fieldHelpSection = nil
+        return nil
+    end
+
+    if app._fieldHelpSection ~= section then
+        local helpData = getHelpData(section)
+        app.fieldHelpTxt = helpData and helpData.fields or nil
+        app._fieldHelpSection = section
+    end
+
+    return app.fieldHelpTxt
+end
+
+local function openSectionHelp(section, script)
+    local helpData = getHelpData(section)
+    if not (helpData and type(helpData.help) == "table") then return false end
+
+    if script and helpData.help[script] then
+        app.ui.openPageHelp(helpData.help[script])
+        return true
+    end
+
+    if helpData.help["default"] then
+        app.ui.openPageHelp(helpData.help["default"])
+        return true
+    end
+
+    return false
 end
 
 
@@ -2085,8 +2312,8 @@ function ui.openPage(opts)
     app.triggers.isReady = false
     app.lastLabel = nil
 
-    if app.formFields then for i = 1, #app.formFields do app.formFields[i] = nil end end
-    if app.formLines then for i = 1, #app.formLines do app.formLines[i] = nil end end
+    wipeTable(app.formFields)
+    wipeTable(app.formLines)
 
     local modulePath = script
     if type(modulePath) ~= "string" then
@@ -2113,13 +2340,8 @@ function ui.openPage(opts)
         end
     end
 
-    local sectionScript = script
-    if type(sectionScript) == "string" and sectionScript:sub(1, 12) == "app/modules/" then
-        sectionScript = sectionScript:sub(13)
-    end
-    local section = tostring(sectionScript):match("([^/]+)")
-    local helpData = getHelpData(section)
-    app.fieldHelpTxt = helpData and helpData.fields or nil
+    app.fieldHelpTxt = nil
+    app._fieldHelpSection = nil
 
     if app.Page.openPage then
         app._pageUsesCustomOpen = true
@@ -2197,9 +2419,65 @@ function ui.openPage(opts)
     collectgarbage('collect')
 end
 
+local function getNavButtonContext()
+    app._navButtonContext = app._navButtonContext or {}
+    return app._navButtonContext
+end
+
+local function onNavButtonMenuPress()
+    local ctx = getNavButtonContext()
+    if app._openedFromShortcuts or app._forceMenuToMain then
+        app.ui.openMainMenu()
+        return
+    end
+    if ctx.onNavMenu then
+        ctx.onNavMenu()
+    elseif app.Page and app.Page.onNavMenu then
+        app.Page.onNavMenu(app.Page)
+    else
+        app.ui.openMenuContext()
+    end
+end
+
+local function onNavButtonSavePress()
+    if app.Page and app.Page.onSaveMenu then
+        app.Page.onSaveMenu(app.Page)
+    else
+        app.triggers.triggerSave = true
+    end
+end
+
+local function onNavButtonReloadPress()
+    if app.Page and app.Page.onReloadMenu then
+        app.Page.onReloadMenu(app.Page)
+    else
+        app.triggers.triggerReload = true
+    end
+    return true
+end
+
+local function onNavButtonToolPress()
+    if app.Page and app.Page.onToolMenu then app.Page.onToolMenu(app.Page) end
+end
+
+local function onNavButtonHelpPress()
+    local ctx = getNavButtonContext()
+    if app.Page and app.Page.onHelpMenu then
+        app.Page.onHelpMenu(app.Page)
+    else
+        openSectionHelp(ctx.section, ctx.script)
+    end
+end
+
+local NAV_BUTTON_DEFS = {
+    {key = "menu", text = "@i18n(app.navigation_menu)@", compact = false, press = onNavButtonMenuPress},
+    {key = "save", text = "@i18n(app.navigation_save)@", compact = false, press = onNavButtonSavePress},
+    {key = "reload", text = "@i18n(app.navigation_reload)@", compact = false, press = onNavButtonReloadPress},
+    {key = "tool", text = "@i18n(app.navigation_tools)@", compact = true, press = onNavButtonToolPress},
+    {key = "help", text = "@i18n(app.navigation_help)@", compact = true, press = onNavButtonHelpPress}
+}
+
 function ui.navigationButtons(x, y, w, h, opts)
-
-
     local padding = 5
     local wS = w - (w * 20) / 100
     local helpOffset = 0
@@ -2226,181 +2504,93 @@ function ui.navigationButtons(x, y, w, h, opts)
         helpEnabled = (navButtons.help == true)
     end
 
-    local section = (type(app.lastScript) == "string") and app.lastScript:match("([^/]+)") or nil
-    local script = (type(app.lastScript) == "string") and app.lastScript:match("/([^/]+)%.lua$") or nil
-    local help = section and getHelpData(section) or nil
-    local hasHelpData = (help and help.help and (help.help[script] or help.help['default'])) and true or false
-    if not collapseNavigation then
+    local section, script = resolveHelpContext(app.lastScript)
+    local navButtonCtx = getNavButtonContext()
+    navButtonCtx.onNavMenu = navOpts.onNavMenu
+    navButtonCtx.section = section
+    navButtonCtx.script = script
+
+    local hasHelpData = sectionHasHelpFile(section)
+    local toolCanRun = (toolEnabled and app.Page and app.Page.onToolMenu ~= nil) and true or false
+    local helpCanRun = (helpEnabled and ((app.Page and app.Page.onHelpMenu ~= nil) or hasHelpData)) and true or false
+    local enabledState = {menu = menuEnabled, save = saveEnabled, reload = reloadEnabled, tool = toolCanRun, help = helpCanRun}
+
+    if collapseNavigation then
+        for i = 1, #NAV_BUTTON_DEFS do
+            app.formNavigationFields[NAV_BUTTON_DEFS[i].key] = nil
+        end
+
+        -- Match legacy header gutter: right-most button stops at (x - padding).
+        local rightEdge = x - padding
+        for i = #NAV_BUTTON_DEFS, 1, -1 do
+            local def = NAV_BUTTON_DEFS[i]
+            if enabledState[def.key] then
+                local width = def.compact and wS or w
+                local bx = rightEdge - width
+                app.formNavigationFields[def.key] = form.addButton(line, {x = bx, y = y, w = width, h = h}, {
+                    text = def.text,
+                    icon = nil,
+                    options = FONT_S,
+                    paint = NOOP_PAINT,
+                    press = def.press
+                })
+                app.formNavigationFields[def.key]:enable(true)
+                rightEdge = bx - padding
+            end
+        end
+    else
         helpOffset = x - (wS + padding)
         toolOffset = helpOffset - (wS + padding)
         reloadOffset = toolOffset - (w + padding)
         saveOffset = reloadOffset - (w + padding)
         menuOffset = saveOffset - (w + padding)
 
-        app.formNavigationFields['menu'] = form.addButton(line, {x = menuOffset, y = y, w = w, h = h}, {
+        app.formNavigationFields["menu"] = form.addButton(line, {x = menuOffset, y = y, w = w, h = h}, {
             text = "@i18n(app.navigation_menu)@",
             icon = nil,
             options = FONT_S,
-            paint = function() end,
-                press = function()
-                    if app._openedFromShortcuts or app._forceMenuToMain then
-                        app.ui.openMainMenu()
-                        return
-                    end
-                    if navOpts.onNavMenu then
-                        navOpts.onNavMenu()
-                    elseif app.Page and app.Page.onNavMenu then
-                        app.Page.onNavMenu(app.Page)
-                    else
-                        app.ui.openMenuContext()
-                    end
-                end
-            })
-
-        app.formNavigationFields['save'] = form.addButton(line, {x = saveOffset, y = y, w = w, h = h}, {
+            paint = NOOP_PAINT,
+            press = onNavButtonMenuPress
+        })
+        app.formNavigationFields["save"] = form.addButton(line, {x = saveOffset, y = y, w = w, h = h}, {
             text = "@i18n(app.navigation_save)@",
             icon = nil,
             options = FONT_S,
-            paint = function() end,
-            press = function()
-                if app.Page and app.Page.onSaveMenu then
-                    app.Page.onSaveMenu(app.Page)
-                else
-                    app.triggers.triggerSave = true
-                end
-            end
+            paint = NOOP_PAINT,
+            press = onNavButtonSavePress
         })
-
-        app.formNavigationFields['reload'] = form.addButton(line, {x = reloadOffset, y = y, w = w, h = h}, {
+        app.formNavigationFields["reload"] = form.addButton(line, {x = reloadOffset, y = y, w = w, h = h}, {
             text = "@i18n(app.navigation_reload)@",
             icon = nil,
             options = FONT_S,
-            paint = function() end,
-            press = function()
-                if app.Page and app.Page.onReloadMenu then
-                    app.Page.onReloadMenu(app.Page)
-                else
-                    app.triggers.triggerReload = true
-                end
-                return true
-            end
+            paint = NOOP_PAINT,
+            press = onNavButtonReloadPress
         })
-
-        app.formNavigationFields['tool'] = form.addButton(line, {x = toolOffset, y = y, w = wS, h = h}, {
+        app.formNavigationFields["tool"] = form.addButton(line, {x = toolOffset, y = y, w = wS, h = h}, {
             text = "@i18n(app.navigation_tools)@",
             icon = nil,
             options = FONT_S,
-            paint = function() end,
-            press = function()
-                if app.Page and app.Page.onToolMenu then app.Page.onToolMenu(app.Page) end
-            end
+            paint = NOOP_PAINT,
+            press = onNavButtonToolPress
         })
-
-        app.formNavigationFields['help'] = form.addButton(line, {x = helpOffset, y = y, w = wS, h = h}, {
+        app.formNavigationFields["help"] = form.addButton(line, {x = helpOffset, y = y, w = wS, h = h}, {
             text = "@i18n(app.navigation_help)@",
             icon = nil,
             options = FONT_S,
-            paint = function() end,
-            press = function()
-                if app.Page and app.Page.onHelpMenu then
-                    app.Page.onHelpMenu(app.Page)
-                elseif help then
-                    if script and help.help[script] then
-                        app.ui.openPageHelp(help.help[script])
-                    else
-                        app.ui.openPageHelp(help.help['default'])
-                    end
-                end
-            end
+            paint = NOOP_PAINT,
+            press = onNavButtonHelpPress
         })
-    end
 
-    local toolCanRun = (toolEnabled and app.Page and app.Page.onToolMenu ~= nil) and true or false
-    local helpCanRun = (helpEnabled and ((app.Page and app.Page.onHelpMenu ~= nil) or hasHelpData)) and true or false
-    local enabledState = {menu = menuEnabled, save = saveEnabled, reload = reloadEnabled, tool = toolCanRun, help = helpCanRun}
-
-    if collapseNavigation then
-        if app.formNavigationFields['menu'] then app.formNavigationFields['menu'] = nil end
-        if app.formNavigationFields['save'] then app.formNavigationFields['save'] = nil end
-        if app.formNavigationFields['reload'] then app.formNavigationFields['reload'] = nil end
-        if app.formNavigationFields['tool'] then app.formNavigationFields['tool'] = nil end
-        if app.formNavigationFields['help'] then app.formNavigationFields['help'] = nil end
-
-        local buttonDefs = {
-            {key = "menu", width = w, enabled = enabledState.menu, text = "@i18n(app.navigation_menu)@", press = function()
-                if navOpts.onNavMenu then
-                    navOpts.onNavMenu()
-                elseif app.Page and app.Page.onNavMenu then
-                    app.Page.onNavMenu(app.Page)
-                else
-                    app.ui.openMenuContext()
-                end
-            end},
-            {key = "save", width = w, enabled = enabledState.save, text = "@i18n(app.navigation_save)@", press = function()
-                if app.Page and app.Page.onSaveMenu then
-                    app.Page.onSaveMenu(app.Page)
-                else
-                    app.triggers.triggerSave = true
-                end
-            end},
-            {key = "reload", width = w, enabled = enabledState.reload, text = "@i18n(app.navigation_reload)@", press = function()
-                if app.Page and app.Page.onReloadMenu then
-                    app.Page.onReloadMenu(app.Page)
-                else
-                    app.triggers.triggerReload = true
-                end
-                return true
-            end},
-            {key = "tool", width = wS, enabled = enabledState.tool, text = "@i18n(app.navigation_tools)@", press = function()
-                if app.Page and app.Page.onToolMenu then app.Page.onToolMenu(app.Page) end
-            end},
-            {key = "help", width = wS, enabled = enabledState.help, text = "@i18n(app.navigation_help)@", press = function()
-                if app.Page and app.Page.onHelpMenu then
-                    app.Page.onHelpMenu(app.Page)
-                elseif help then
-                    if script and help.help[script] then
-                        app.ui.openPageHelp(help.help[script])
-                    else
-                        app.ui.openPageHelp(help.help['default'])
-                    end
-                end
-            end}
-        }
-
-        local visibleButtons = {}
-        for i = 1, #buttonDefs do
-            if buttonDefs[i].enabled then
-                visibleButtons[#visibleButtons + 1] = buttonDefs[i]
-            end
-        end
-
-        -- Match legacy header gutter: right-most button stops at (x - padding).
-        local rightEdge = x - padding
-        for i = #visibleButtons, 1, -1 do
-            local def = visibleButtons[i]
-            local bx = rightEdge - def.width
-            app.formNavigationFields[def.key] = form.addButton(line, {x = bx, y = y, w = def.width, h = h}, {
-                text = def.text,
-                icon = nil,
-                options = FONT_S,
-                paint = function() end,
-                press = def.press
-            })
-            app.formNavigationFields[def.key]:enable(true)
-            rightEdge = bx - padding
-        end
-    else
-        app.formNavigationFields['menu']:enable(enabledState.menu)
-        app.formNavigationFields['save']:enable(enabledState.save)
-        app.formNavigationFields['reload']:enable(enabledState.reload)
-        app.formNavigationFields['tool']:enable(enabledState.tool)
-        app.formNavigationFields['help']:enable(enabledState.help)
+        app.formNavigationFields["menu"]:enable(enabledState.menu)
+        app.formNavigationFields["save"]:enable(enabledState.save)
+        app.formNavigationFields["reload"]:enable(enabledState.reload)
+        app.formNavigationFields["tool"]:enable(enabledState.tool)
+        app.formNavigationFields["help"]:enable(enabledState.help)
     end
 
     local focused = false
-    local focusOrder = {"menu", "save", "reload", "tool", "help"}
-    for i = 1, #focusOrder do
-        local key = focusOrder[i]
+    for i = 1, #NAV_FOCUS_ORDER do
+        local key = NAV_FOCUS_ORDER[i]
         local btn = app.formNavigationFields[key]
         if btn and enabledState[key] then
             btn:focus()
@@ -2410,8 +2600,8 @@ function ui.navigationButtons(x, y, w, h, opts)
     end
 
     if not focused then
-        for i = 1, #focusOrder do
-            local btn = app.formNavigationFields[focusOrder[i]]
+        for i = 1, #NAV_FOCUS_ORDER do
+            local btn = app.formNavigationFields[NAV_FOCUS_ORDER[i]]
             if btn then
                 btn:focus()
                 focused = true
@@ -2435,7 +2625,26 @@ function ui.openPageHelp(txtData, title)
 
     if not title then title = "@i18n(app.header_help)@ - " .. (app.lastTitle or "") end
 
-    form.openDialog({width = app.lcdWidth, title = title, message = message, buttons = {{label = "@i18n(app.btn_close)@", action = function() return true end}}, options = TEXT_LEFT})
+    form.openDialog({
+        width = app.lcdWidth,
+        title = title,
+        message = message,
+        buttons = {{
+            label = "@i18n(app.btn_close)@",
+            action = function()
+                local section = resolveHelpContext(app.lastScript)
+                if section then
+                    ui._helpCache[section] = nil
+                else
+                    ui._helpCache = {}
+                end
+                app.fieldHelpTxt = nil
+                app._fieldHelpSection = nil
+                return true
+            end
+        }},
+        options = TEXT_LEFT
+    })
 end
 
 function ui.injectApiAttributes(formField, f, v)
@@ -2498,7 +2707,7 @@ function ui.injectApiAttributes(formField, f, v)
     if v.default and not f.default then
         f.default = v.default
         if f.offset then f.default = f.default + f.offset end
-        local default = f.default * app.utils.decimalInc(f.decimals)
+        local default = f.default * rfutils.decimalInc(f.decimals)
         if f.mult then default = default * f.mult end
         local str = tostring(default)
         if str:match("%.0$") then default = math.ceil(default) end
@@ -2564,9 +2773,38 @@ function ui.mspApiUpdateFormAttributes()
     local fields = app.Page.apidata.formdata.fields
     local api = app.Page.apidata.api
 
+    local function apiEntryName(entry)
+        if type(entry) == "table" then return entry.name end
+        return entry
+    end
+
+    local function apiEntryId(entry, index)
+        if type(entry) == "table" and type(entry.id) == "number" then
+            return entry.id
+        end
+        return index
+    end
+
     if not app.Page.apidata.api_reversed then
         app.Page.apidata.api_reversed = {}
-        for index, value in pairs(app.Page.apidata.api) do app.Page.apidata.api_reversed[value] = index end
+        app.Page.apidata.api_by_id = {}
+        for index, value in pairs(app.Page.apidata.api) do
+            local name = apiEntryName(value)
+            if name then
+                local id = apiEntryId(value, index)
+                app.Page.apidata.api_reversed[name] = id
+                app.Page.apidata.api_by_id[id] = name
+            end
+        end
+    elseif not app.Page.apidata.api_by_id then
+        app.Page.apidata.api_by_id = {}
+        for index, value in pairs(app.Page.apidata.api) do
+            local name = apiEntryName(value)
+            if name then
+                local id = apiEntryId(value, index)
+                app.Page.apidata.api_by_id[id] = name
+            end
+        end
     end
 
     for i, f in ipairs(fields) do
@@ -2583,11 +2821,13 @@ function ui.mspApiUpdateFormAttributes()
 
             local apikey = f.apikey
             local mspapiID = f.mspapi
-            local mspapiNAME = api[mspapiID]
-            local target = structure[mspapiNAME]
+            local mspapiNAME = (app.Page.apidata.api_by_id and app.Page.apidata.api_by_id[mspapiID]) or apiEntryName(api[mspapiID])
+            local target = mspapiNAME and structure[mspapiNAME] or nil
 
             if mspapiID == nil or mspapiID == nil then
                 log("API field missing mspapi or apikey", "debug")
+            elseif not target then
+                log("API field missing structure: " .. tostring(mspapiNAME), "debug")
             else
                 for _, v in ipairs(target) do
                     if not v.bitmap then
@@ -2713,6 +2953,7 @@ function ui.requestPage()
                 state.isProcessing = false
                 state.currentIndex = 1
                 app.triggers.isReady = true
+                app.triggers.rebootInProgress = false
                 if app.Page.postRead then app.Page.postRead(app.Page) end
                 app.ui.mspApiUpdateFormAttributes()
                 if app.Page.postLoad then
@@ -2727,7 +2968,8 @@ function ui.requestPage()
         end
 
         local v = apiList[state.currentIndex]
-        local apiKey = type(v) == "string" and v or v.name
+        local apiMeta = type(v) == "table" and v or nil
+        local apiKey = type(v) == "string" and v or (apiMeta and apiMeta.name or nil)
         local retryCount = app.Page.apidata.retryCount and app.Page.apidata.retryCount[apiKey] or 0
         if not apiKey then
             log("API key is missing for index " .. tostring(state.currentIndex), "warning")
@@ -2739,7 +2981,20 @@ function ui.requestPage()
             return
         end
 
-        local API = tasks.msp.api.load(v)
+        local enableDeltaCache = nil
+        if apiMeta and apiMeta.enableDeltaCache ~= nil then
+            enableDeltaCache = apiMeta.enableDeltaCache
+        elseif app.Page.apidata and app.Page.apidata.enableDeltaCache ~= nil then
+            enableDeltaCache = app.Page.apidata.enableDeltaCache
+        end
+        if enableDeltaCache ~= nil and type(enableDeltaCache) ~= "boolean" then
+            enableDeltaCache = nil
+        end
+
+        local API = tasks.msp.api.load(apiKey, {loadHelp = true})
+        if API and API.enableDeltaCache and enableDeltaCache ~= nil then
+            API.enableDeltaCache(enableDeltaCache)
+        end
 
         if app and app.Page and app.Page.apidata then app.Page.apidata.retryCount = app.Page.apidata.retryCount or {} end
 
@@ -2776,12 +3031,26 @@ function ui.requestPage()
                 return
             end
             log("[SUCCESS] API: " .. apiKey .. " completed successfully.", "debug")
-            tasks.msp.api.apidata.values[apiKey] = API.data().parsed
-            tasks.msp.api.apidata.structure[apiKey] = API.data().structure
-            tasks.msp.api.apidata.receivedBytes[apiKey] = API.data().buffer
-            tasks.msp.api.apidata.receivedBytesCount[apiKey] = API.data().receivedBytesCount
-            tasks.msp.api.apidata.positionmap[apiKey] = API.data().positionmap
-            tasks.msp.api.apidata.other[apiKey] = API.data().other or {}
+            local cacheEnabled = enableDeltaCache
+            if cacheEnabled == nil and tasks.msp.api.isDeltaCacheEnabled then
+                cacheEnabled = tasks.msp.api.isDeltaCacheEnabled(apiKey)
+            end
+            if type(cacheEnabled) ~= "boolean" then cacheEnabled = nil end
+            if cacheEnabled == nil then cacheEnabled = true end
+
+            local data = API.data()
+            tasks.msp.api.apidata.values[apiKey] = data.parsed
+            tasks.msp.api.apidata.structure[apiKey] = data.structure
+            if cacheEnabled == true then
+                tasks.msp.api.apidata.receivedBytes[apiKey] = data.buffer
+                tasks.msp.api.apidata.receivedBytesCount[apiKey] = data.receivedBytesCount
+                tasks.msp.api.apidata.positionmap[apiKey] = data.positionmap
+            else
+                tasks.msp.api.apidata.receivedBytes[apiKey] = nil
+                tasks.msp.api.apidata.receivedBytesCount[apiKey] = nil
+                tasks.msp.api.apidata.positionmap[apiKey] = nil
+            end
+            tasks.msp.api.apidata.other[apiKey] = data.other or {}
             app.Page.apidata.retryCount[apiKey] = 0
             state.currentIndex = state.currentIndex + 1
             API = nil
@@ -2816,12 +3085,13 @@ function ui.requestPage()
     processNextAPI()
 end
 
-function ui.saveSettings()
+function ui.saveSettings(sourcePage)
 
     local log = utils.log
+    local page = sourcePage or app.Page
 
     if app.pageState == app.pageStatus.saving then return end
-    if not (app.Page and app.Page.apidata and app.Page.apidata.formdata and app.Page.apidata.formdata.fields and app.Page.apidata.api) then
+    if not (page and page.apidata and page.apidata.formdata and page.apidata.formdata.fields and page.apidata.api) then
         log("saveSettings called without valid apidata; skipping.", "info")
         app.pageState = app.pageStatus.display
         app.triggers.isSaving = false
@@ -2835,7 +3105,7 @@ function ui.saveSettings()
 
     log("Saving data", "debug")
 
-    local mspapi = app.Page.apidata
+    local mspapi = page.apidata
     local apiList = mspapi.api
     local values = tasks.msp.api.apidata.values
 
@@ -2843,11 +3113,19 @@ function ui.saveSettings()
     local completedRequests = 0
     local enqueueFailures = 0
 
-    app.Page.apidata.apiState.isProcessing = true
+    page.apidata.apiState.isProcessing = true
 
-    if app.Page.preSave then app.Page.preSave(app.Page) end
+    if page.preSave then page.preSave(page) end
 
-    for apiID, apiNAME in ipairs(apiList) do
+    for apiID, apiEntry in ipairs(apiList) do
+
+        local apiMeta = type(apiEntry) == "table" and apiEntry or nil
+        local apiNAME = type(apiEntry) == "string" and apiEntry or (apiMeta and apiMeta.name or nil)
+        if not apiNAME then
+            log("saveSettings skipped entry with missing API name at index " .. tostring(apiID), "warning")
+            completedRequests = completedRequests + 1
+            goto continue
+        end
 
         utils.reportMemoryUsage("ui.saveSettings " .. apiNAME, "start")
 
@@ -2855,6 +3133,22 @@ function ui.saveSettings()
         local payloadStructure = tasks.msp.api.apidata.structure[apiNAME]
 
         local API = tasks.msp.api.load(apiNAME)
+        if API and API.enableDeltaCache then
+            local enableDeltaCache = nil
+            if apiMeta and apiMeta.enableDeltaCache ~= nil then
+                enableDeltaCache = apiMeta.enableDeltaCache
+            elseif page.apidata and page.apidata.enableDeltaCache ~= nil then
+                enableDeltaCache = page.apidata.enableDeltaCache
+            end
+            if type(enableDeltaCache) == "boolean" then
+                API.enableDeltaCache(enableDeltaCache)
+            end
+        end
+        if API and API.setRebuildOnWrite and apiMeta and apiMeta.rebuildOnWrite ~= nil then
+            if type(apiMeta.rebuildOnWrite) == "boolean" then
+                API.setRebuildOnWrite(apiMeta.rebuildOnWrite)
+            end
+        end
         API.setErrorHandler(function(self, buf) app.triggers.saveFailed = true end)
         API.setCompleteHandler(function(self, buf)
             completedRequests = completedRequests + 1
@@ -2863,24 +3157,28 @@ function ui.saveSettings()
 
             if completedRequests == totalRequests then
                 log("All API requests have been completed!", "debug")
-                app.Page.apidata.apiState.isProcessing = false
+                if page and page.apidata and page.apidata.apiState then
+                    page.apidata.apiState.isProcessing = false
+                end
                 if enqueueFailures > 0 or app.triggers.saveFailed then
                     app.pageState = app.pageStatus.display
                     app.triggers.closeSaveFake = true
                     app.triggers.isSaving = false
                 else
                     ui.setPageDirty(false)
-                    if app.Page.postSave then app.Page.postSave(app.Page) end
-                    app.utils.settingsSaved()
+                    if page and page.postSave then page.postSave(page) end
+                    app.utils.settingsSaved(page)
                 end
             end
         end)
 
         local fieldMap = {}
         local fieldMapBitmap = {}
-        for fidx, f in ipairs(app.Page.apidata.formdata.fields) do
+        local apiId = apiID
+        if apiMeta and type(apiMeta.id) == "number" then apiId = apiMeta.id end
+        for fidx, f in ipairs(page.apidata.formdata.fields) do
             if not f.bitmap then
-                if f.mspapi == apiID then fieldMap[f.apikey] = fidx end
+                if f.mspapi == apiId then fieldMap[f.apikey] = fidx end
             else
                 local p1, p2 = string.match(f.apikey, "([^%-]+)%-%>(.+)")
                 if not fieldMapBitmap[p1] then fieldMapBitmap[p1] = {} end
@@ -2891,12 +3189,12 @@ function ui.saveSettings()
         for k, v in pairs(payloadData) do
             local fieldIndex = fieldMap[k]
             if fieldIndex then
-                payloadData[k] = app.Page.apidata.formdata.fields[fieldIndex].value
+                payloadData[k] = page.apidata.formdata.fields[fieldIndex].value
             elseif fieldMapBitmap[k] then
                 local originalValue = tonumber(v) or 0
                 local newValue = originalValue
                 for bit, idx in pairs(fieldMapBitmap[k]) do
-                    local fieldVal = mathFloor(tonumber(app.Page.apidata.formdata.fields[idx].value) or 0)
+                    local fieldVal = mathFloor(tonumber(page.apidata.formdata.fields[idx].value) or 0)
                     local mask = 1 << (bit)
                     if fieldVal ~= 0 then
                         newValue = newValue | mask
@@ -2914,11 +3212,11 @@ function ui.saveSettings()
         end
 
         local payload = nil
-        if app.Page.preSavePayload and payloadStructure then
+        if page.preSavePayload and payloadStructure then
             local core = getApiCore()
             if core and core.buildWritePayload then
                 payload = core.buildWritePayload(apiNAME, payloadData, payloadStructure, false)
-                local adjusted = app.Page.preSavePayload(payload)
+                local adjusted = page.preSavePayload(payload)
                 if adjusted ~= nil then payload = adjusted end
             end
         end
@@ -2936,7 +3234,9 @@ function ui.saveSettings()
             app.triggers.saveFailed = true
             log("API " .. apiNAME .. " enqueue rejected: " .. tostring(reason), "info")
             if completedRequests == totalRequests then
-                app.Page.apidata.apiState.isProcessing = false
+                if page and page.apidata and page.apidata.apiState then
+                    page.apidata.apiState.isProcessing = false
+                end
                 app.pageState = app.pageStatus.display
                 app.triggers.closeSaveFake = true
                 app.triggers.isSaving = false
@@ -2945,13 +3245,16 @@ function ui.saveSettings()
 
         utils.reportMemoryUsage("ui.saveSettings " .. apiNAME, "end")
 
+        ::continue::
+
     end
 
 end
 
-function ui.rebootFc()
+function ui.rebootFc(sourcePage)
     local armflags = tasks and tasks.telemetry and tasks.telemetry.getSensor and tasks.telemetry.getSensor("armflags")
     local armedByFlags = (armflags == 1 or armflags == 3)
+    local rebootPage = sourcePage or app.Page
     if (session and session.isArmed) or armedByFlags then
         utils.log("Blocked reboot while armed", "info")
         app.pageState = app.pageStatus.display
@@ -2961,18 +3264,49 @@ function ui.rebootFc()
         return false, "armed_blocked"
     end
 
+    app.triggers.rebootInProgress = true
     app.pageState = app.pageStatus.rebooting
     local ok, reason = tasks.msp.mspQueue:add({
         command = 68,
         uuid = "ui.reboot",
         processReply = function(self, buf)
-            app.utils.invalidatePages()
+            if not app.Page and app.uiState == app.uiStatus.pages and rebootPage then
+                app.Page = rebootPage
+            end
+            -- Keep the current page object alive across reboot transitions;
+            -- loader/request logic will refresh live values when connection resumes.
+            app.utils.invalidatePages({preserveCurrentPage = true})
+            app.triggers.isReady = false
             utils.onReboot()
         end,
         simulatorResponse = {}
     })
+    if ok and app.dialogs then
+        if app.dialogs.saveDisplay then
+            app.triggers.closeSaveFake = true
+            app.dialogs.saveDisplay = false
+            app.dialogs.saveWatchDog = nil
+            app.dialogs.saveProgressCounter = 0
+            app.triggers.isSaving = false
+            app.triggers.closeSave = false
+            app.triggers.closeSaveFake = false
+            pcall(function() app.dialogs.save:close() end)
+            ui.clearProgressDialog(app.dialogs.save)
+        end
+        if app.dialogs.progressDisplay then
+            app.dialogs.progressDisplay = false
+            app.dialogs.progressWatchDog = nil
+            app.dialogs.progressCounter = 0
+            app.dialogs.progressSpeed = nil
+            app.triggers.closeProgressLoader = false
+            app.triggers.closeProgressLoaderNoisProcessed = false
+            pcall(function() app.dialogs.progress:close() end)
+            ui.clearProgressDialog(app.dialogs.progress)
+        end
+    end
     if not ok then
         utils.log("Reboot enqueue rejected: " .. tostring(reason), "info")
+        app.triggers.rebootInProgress = false
         app.pageState = app.pageStatus.display
         app.triggers.closeSaveFake = true
         app.triggers.isSaving = false

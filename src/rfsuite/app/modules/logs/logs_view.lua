@@ -70,7 +70,7 @@ local SAMPLE_RATE = 1
 local function secondsToSamples(sec) return math.floor(sec * SAMPLE_RATE) end
 
 local function openProgressDialog(...)
-    if rfutils.ethosVersionAtLeast({1, 7, 0}) and form.openWaitDialog then
+    if rfutils.ethosVersionAtLeast({26, 1, 0}) and form.openWaitDialog then
         local arg1 = select(1, ...)
         if type(arg1) == "table" then
             arg1.progress = true
@@ -753,4 +753,21 @@ onNavMenu = function(self)
     return navHandlers.onNavMenu()
 end
 
-return {event = event, openPage = openPage, wakeup = wakeup, paint = paint, onNavMenu = onNavMenu, navButtons = {menu = true, save = false, reload = false, tool = false, help = true}, API = {}}
+local function close()
+    enableWakeup = false
+
+    if progressLoader then
+        pcall(function() progressLoader:close() end)
+        app.ui.clearProgressDialog(progressLoader)
+        progressLoader = nil
+        progressLoaderBaseMessage = nil
+        progressLoaderMspStatusLast = nil
+    end
+
+    if logFileHandle then
+        pcall(function() logFileHandle:close() end)
+        logFileHandle = nil
+    end
+end
+
+return {event = event, openPage = openPage, wakeup = wakeup, paint = paint, onNavMenu = onNavMenu, close = close, navButtons = {menu = true, save = false, reload = false, tool = false, help = true}, API = {}}
