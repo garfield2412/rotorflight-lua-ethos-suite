@@ -24,7 +24,7 @@ local apidata = {
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.gear_ratio)@", type = 2, mspapi = 1, apikey = "gear_ratio", label = "general"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.brake)@", type = 4, mspapi = 1, apikey = "brake"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.prop_brake)@", type = 4, mspapi = 1, apikey = "prop_brake", label = "general"},
-            {t = "@i18n(app.modules.esc_tools.mfg.kontr.rpm_ctl)@", type = 4, mspapi = 1, apikey = "rpm_ctl"},
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.rpm_ctl)@", type = 4, mspapi = 1, apikey = "rpm_ctl", label = "rpm"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.how_adj_max_rpm)@", type = 1,  mspapi = 1, apikey = "how_adj_max_rpm", label = "rpm"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.max_rpm)@", type = 2, mspapi = 1, apikey = "max_rpm", label = "rpm"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.startuptime)@", type = 2, mspapi = 1, apikey = "startuptime", label = "rpm"},

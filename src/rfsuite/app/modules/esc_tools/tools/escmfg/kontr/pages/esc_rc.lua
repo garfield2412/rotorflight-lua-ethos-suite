@@ -21,8 +21,8 @@ local apidata = {
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.max_position)@", type = 2, mspapi = 1, apikey = "max_position"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.brake_position)@", type = 2, mspapi = 1, apikey = "brake_position"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.bec_voltage)@", type = 2, mspapi = 1, apikey = "bec_voltage"},
-            {t = "@i18n(app.modules.esc_tools.mfg.kontr.bt_disable_motor_renable_button)@", type = 4, mspapi = 1, apikey = "bt_disable_motor_renable_button", label = "bluetooth"},
-            {t = "@i18n(app.modules.esc_tools.mfg.kontr.bt_disable_motor_renable_motor_stop)@", type = 4, mspapi = 1, apikey = "bt_disable_motor_renable_motor_stop", label = "bluetooth"}
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.bt_disable_motor_renable_button)@", type = 4, mspapi = 1, apikey = "bt_disable_motor_renable_button", label = "bluetooth", disable = true},
+            {t = "@i18n(app.modules.esc_tools.mfg.kontr.bt_disable_motor_renable_motor_stop)@", type = 4, mspapi = 1, apikey = "bt_disable_motor_renable_motor_stop", label = "bluetooth", disable = true}
         }
     }
 }
@@ -37,6 +37,7 @@ return {
     reboot = false,
     escinfo = escinfo,
     postLoad = postLoad,
+    wakeup = wakeup,
     navButtons = {menu = true, save = true, reload = true, tool = false, help = false},
     onNavMenu = onNavMenu,
     event = event,
