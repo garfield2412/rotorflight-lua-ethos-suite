@@ -14,7 +14,7 @@ local apidata = {
     formdata = {
         labels = {
             { t = "@i18n(app.modules.esc_tools.mfg.kontr.general)@", label = "general"},
-            { t = "@i18n(app.modules.esc_tools.mfg.kontr.rpm_ctl)@", label = "rpm", inline_size = 40.6 },
+            { t = "@i18n(app.modules.esc_tools.mfg.kontr.rpm_ctl)@", label = "rpm"},
             { t = "@i18n(app.modules.esc_tools.mfg.kontr.expert)@", label = "expert"},
         },
         fields = {

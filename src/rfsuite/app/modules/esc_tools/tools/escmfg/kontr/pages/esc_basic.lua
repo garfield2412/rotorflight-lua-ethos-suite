@@ -21,7 +21,7 @@ local apidata = {
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.battery_type)@", type = 1,  mspapi = 1, apikey = "battery_type"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.undervoltage_behavior)@", type = 1,  mspapi = 1, apikey = "undervoltage_behavior"},
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.undervoltage_cell)@", label = "undervoltage1", inline = 1, type = 2,  mspapi = 1, apikey = "undervoltage_cell"},
-            {t = "@i18n(app.modules.esc_tools.mfg.kontr.discharge_limiter_act)@", type = 4,  mspapi = 1, apikey = "discharge_limiter_act"}, -- this field is for later purpose (inactivating and deactivating the discharge limiter), so not adding it to the form for now
+            --{t = "@i18n(app.modules.esc_tools.mfg.kontr.discharge_limiter_act)@", type = 4,  mspapi = 1, apikey = "discharge_limiter_act"}, -- this field is for later purpose (inactivating and deactivating the discharge limiter), so not adding it to the form for now
             {t = "@i18n(app.modules.esc_tools.mfg.kontr.discharge_limit)@", label = "discharge", inline = 1, type = 2,  mspapi = 1, apikey = "discharge_limit"}
         }
     }

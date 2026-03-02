@@ -10,53 +10,52 @@ local MSP_HEADER_BYTES = 2
 
 local flight_Mode = {"@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_sailplane)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_motorplane)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_helicopter)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_auto)@"}
 local rotation = {"@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_cw)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_ccw)@"}
---local bec_voltage = {"4800mv", "4900mv", "5000mv", "5100mv", "5200mv", "5300mv", "5400mv", "5500mv", "5600mv", "5700mv", "5800mv", "5900mv", "6000mV", "6100mV", "6200mV", "6300mV", "6400mV", "6500mV", "6600mV", "6700mV", "6800mV", "6900mV", "7000mV", "7100mV", "7200mV", "7300mV", "7400mV", "7500mV", "7600mV", "7700mV", "7800mV", "7900mV", "8000mV"}
 local pole_number = {"2", "4", "6", "8", "10", "12", "14", "16", "18", "20"}
 local battery_type = {"NiCd / NiMH", "LiPo", "LiFePo"}
 local undervoltage_behavior = {"@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_undervoltage_behavior_slow)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_undervoltage_behavior_shut)@"}
 local how_adj_max_rpm = {"@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_how_adj_max_rpm_idleup)@", "@i18n(api.ESC_PARAMETERS_KONTRONIK.tbl_how_adj_max_rpm_govstore)@"}
 
 local MSP_API_STRUCTURE_READ_DATA = {
-  {field = "esc_signature", type="U8", apiVersion = {12, 0, 9}, simResponse={ 75 }, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_signature)@" },
-  {field = "esc_command", type = "U8", apiVersion = {12, 0, 9}, simResponse = {0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_command)@"},
-  {field = "esc_model", type = "U128", apiVersion = {12, 0, 9}, simResponse = {75, 79, 76, 73, 66, 82, 73, 49, 52, 48, 43, 76, 86, 32, 32, 32}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_model)@"},
-  {field = "bec_voltage", type = "U16", apiVersion = {12, 0, 9}, simResponse = {0, 0}, unit = "mV",help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bec_voltage)@"},
-  {field = "rotation", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.rotation)@" },
-  {field = "fwd_bckwd", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.fwd_bckwd)@" },
-  {field = "flight_Mode", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 2 }, default = 2, min = 0, max = #flight_Mode, tableIdxInc = -1, table = flight_Mode, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.flight_Mode)@" },
-  {field = "battery_type", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 1 }, default = 1, min = 0, max = #battery_type, tableIdxInc = -1, table = battery_type, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.battery_type)@" },
-  {field = "undervoltage_behavior", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0, min = 0, max = #undervoltage_behavior, tableIdxInc = -1, table = undervoltage_behavior, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.undervoltage_behavior)@" },
-  {field = "undervoltage_cell", type = "U16", apiVersion = {12, 0, 9}, simResponse = {184, 11},min = 1200, max = 3800, step = 100, unit = "mV", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.undervoltage_cell)@" },
-  --{field = "discharge_limiter_act", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0},
-  {field = "discharge_limit", type = "U16", apiVersion = {12, 0, 9}, simResponse = {0, 0}, min = 0, max = 20, step = 1, unit = "mAh", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.discharge_limit)@" },
-  {field = "pole_number", type = "U8", apiVersion = {12, 0, 9}, simResponse = {4}, tableIdxInc = -1, table = pole_number, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.pole_number)@" },
-  {field = "gear_ratio", type = "U16", apiVersion = {12, 0, 9}, simResponse = {100, 0}, min = 100, max = 2000,step = 1, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.gear_ratio)@" },
-  {field = "brake", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0},
-  {field = "prop_brake", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0},
-  {field = "rpm_ctl", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0},
-  {field = "how_adj_max_rpm", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 4, 64, 117, 10, 17 }, default = 0, min = 0, max = #how_adj_max_rpm, tableIdxInc = -1, table = how_adj_max_rpm},
-  {field = "max_rpm", type = "U16", apiVersion = {12, 0, 9}, simResponse = { 48, 117 }, default = 30000, min = 0, max = 100000, step = 100},
-  {field = "startuptime", type = "U8", apiVersion = {12, 0, 9}, simResponse = {5}, default = 5, min = 0, max = 60, unit = "s"},
-  {field = "p-gain", type = "U8", apiVersion = {12, 0, 9}, simResponse = {4}, default = 4, min = 0, max = 15},
-  {field = "motor_resist", type = "U8", apiVersion = {12, 0, 9}, simResponse = {10}, default = 10, min = 0, max = 15, unit = "mOhm"},
-  {field = "PWM_min", type = "U8", apiVersion = {12, 0, 9}, simResponse = {1}, min = 0, max = 100, step = 1, unit = "%", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.PWM_min)@" },
-  {field = "slewrate_up", type = "U16", apiVersion = {12, 0, 9}, simResponse = {64, 31}, default = 8000, min = 0, max = 65535, unit = "ms"},
-  {field = "slewrate_down", type = "U16", apiVersion = {12, 0, 9}, simResponse = {160, 15}, default = 4000, min = 0, max = 65535, unit = "ms"},
-  {field = "extra_smooth_IU", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0},
-  {field = "alternate_startup", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0},
-  {field = "startup_curr_limit", type = "U8", apiVersion = {12, 0, 9}, simResponse = {100}, default = 150, min = 0, max = 255, step = 1, unit = "A"},
-  {field = "max_discharge", type = "U16", apiVersion = {12, 0, 9}, simResponse = {86, 32, 10, 0, 0}, default = 15, min = 0, max = 50, step = 1,  unit = "Ah", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_discharge)@" },
-  {field = "min_input_voltage", type = "U16", apiVersion = {12, 0, 9}, simResponse = {76, 32, 172, 13, 0}, default = 3000, min = 1000, max = 100000, step = 100, unit = "mV", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.min_input_voltage)@" },
-  {field = "max_motor_current", type = "U16", apiVersion = {12, 0, 9}, simResponse = {78, 32, 150, 0, 0}, default = 150, min = 0, max = 500, step = 1, unit = "A", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_motor_current)@" },
-  {field = "max_esc_temp", type = "U16", apiVersion = {12, 0, 9}, simResponse = {80, 32, 90, 0, 0}, default = 90, min = 0, max = 200, step = 1,  unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_esc_temp)@" },
-  {field = "max_bec_temp", type = "U16", apiVersion = {12, 0, 9}, simResponse = {82, 32, 95, 0, 0}, default = 95, min = 0, max = 255, step = 1, unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_temp)@" },
-  {field = "max_bec_current", type = "U16", apiVersion = {12, 0, 9}, simResponse = {84, 32, 224, 46, 0}, default = 12, min = 0, max = 50000, step = 100, unit = "mA", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_current)@" },
-  {field = "act_impulse_length", type = "U16", apiVersion = {12, 0, 9}, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us"},
-  {field = "off_position", type = "U16", apiVersion = {12, 0, 9}, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.off_position)@" },
-  {field = "max_position", type = "U16", apiVersion = {12, 0, 9}, simResponse = {148, 7}, default = 1940, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_position)@" },
-  {field = "brake_position", type = "U16", apiVersion = {12, 0, 9}, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.brake_position)@" },
-  {field = "bt_disable_motor_renable_button", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bt_disable_motor_renable_button)@" },
-  {field = "bt_disable_motor_renable_motor_stop", type = "U8", apiVersion = {12, 0, 9}, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bt_disable_motor_renable_motor_stop)@" },
+  {field = "esc_signature", type="U8", apiVersion = {12, 0, 8}, simResponse={ 75 }, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_signature)@" },
+  {field = "esc_command", type = "U8", apiVersion = {12, 0, 8}, simResponse = {0}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_command)@"},
+  {field = "esc_model", type = "U128", apiVersion = {12, 0, 8}, simResponse = {75, 79, 76, 73, 66, 82, 73, 49, 52, 48, 43, 76, 86, 32, 32, 32}, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.esc_model)@"},
+  {field = "bec_voltage", type = "U16", apiVersion = {12, 0, 8}, simResponse = {0, 0}, min = 4800, max = 8000, step = 100, unit = "mV",help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bec_voltage)@"},
+  {field = "rotation", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.rotation)@" },
+  {field = "fwd_bckwd", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.fwd_bckwd)@" },
+  {field = "flight_Mode", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 2 }, default = 2, min = 0, max = #flight_Mode, tableIdxInc = -1, table = flight_Mode, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.flight_Mode)@" },
+  {field = "battery_type", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 1 }, default = 1, min = 0, max = #battery_type, tableIdxInc = -1, table = battery_type, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.battery_type)@" },
+  {field = "undervoltage_behavior", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0, min = 0, max = #undervoltage_behavior, tableIdxInc = -1, table = undervoltage_behavior, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.undervoltage_behavior)@" },
+  {field = "undervoltage_cell", type = "U16", apiVersion = {12, 0, 8}, simResponse = {184, 11},min = 1200, max = 3800, step = 100, unit = "mV", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.undervoltage_cell)@" },
+  --{field = "discharge_limiter_act", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0},
+  {field = "discharge_limit", type = "U16", apiVersion = {12, 0, 8}, simResponse = {0, 0}, min = 0, max = 20, step = 1, unit = "mAh", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.discharge_limit)@" },
+  {field = "pole_number", type = "U8", apiVersion = {12, 0, 8}, simResponse = {4}, tableIdxInc = -1, table = pole_number, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.pole_number)@" },
+  {field = "gear_ratio", type = "U16", apiVersion = {12, 0, 8}, simResponse = {100, 0}, min = 100, max = 2000,step = 1, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.gear_ratio)@" },
+  {field = "brake", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0},
+  {field = "prop_brake", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0},
+  {field = "rpm_ctl", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0},
+  {field = "how_adj_max_rpm", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 4, 64, 117, 10, 17 }, default = 0, min = 0, max = #how_adj_max_rpm, tableIdxInc = -1, table = how_adj_max_rpm},
+  {field = "max_rpm", type = "U16", apiVersion = {12, 0, 8}, simResponse = { 48, 117 }, default = 30000, min = 0, max = 100000, step = 100},
+  {field = "startuptime", type = "U8", apiVersion = {12, 0, 8}, simResponse = {5}, default = 5, min = 0, max = 60, unit = "s"},
+  {field = "p-gain", type = "U8", apiVersion = {12, 0, 8}, simResponse = {4}, default = 4, min = 0, max = 15},
+  {field = "motor_resist", type = "U8", apiVersion = {12, 0, 8}, simResponse = {10}, default = 10, min = 0, max = 15, unit = "mOhm"},
+  {field = "PWM_min", type = "U8", apiVersion = {12, 0, 8}, simResponse = {1}, min = 0, max = 100, step = 1, unit = "%", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.PWM_min)@" },
+  {field = "slewrate_up", type = "U16", apiVersion = {12, 0, 8}, simResponse = {64, 31}, default = 8000, min = 0, max = 65535, unit = "ms"},
+  {field = "slewrate_down", type = "U16", apiVersion = {12, 0, 8}, simResponse = {160, 15}, default = 4000, min = 0, max = 65535, unit = "ms"},
+  {field = "extra_smooth_IU", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0},
+  {field = "alternate_startup", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0},
+  {field = "startup_curr_limit", type = "U8", apiVersion = {12, 0, 8}, simResponse = {100}, default = 150, min = 0, max = 255, step = 1, unit = "A"},
+  {field = "max_discharge", type = "U16", apiVersion = {12, 0, 8}, simResponse = {0, 0}, default = 15, min = 0, max = 50, step = 1,  unit = "Ah", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_discharge)@" },
+  {field = "min_input_voltage", type = "U16", apiVersion = {12, 0, 8}, simResponse = {172, 13}, default = 3000, min = 1000, max = 100000, step = 100, unit = "mV", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.min_input_voltage)@" },
+  {field = "max_motor_current", type = "U16", apiVersion = {12, 0, 8}, simResponse = {220, 0}, default = 150, min = 0, max = 500, step = 1, unit = "A", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_motor_current)@" },
+  {field = "max_esc_temp", type = "U16", apiVersion = {12, 0, 8}, simResponse = {95, 0}, default = 90, min = 0, max = 200, step = 1,  unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_esc_temp)@" },
+  {field = "max_bec_temp", type = "U16", apiVersion = {12, 0, 8}, simResponse = {95, 0}, default = 95, min = 0, max = 255, step = 1, unit = "°C", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_temp)@" },
+  {field = "max_bec_current", type = "U16", apiVersion = {12, 0, 8}, simResponse = {224, 46}, default = 12, min = 0, max = 50000, step = 100, unit = "mA", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_bec_current)@" },
+  {field = "act_impulse_length", type = "U16", apiVersion = {12, 0, 8}, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us"},
+  {field = "off_position", type = "U16", apiVersion = {12, 0, 8}, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.off_position)@" },
+  {field = "max_position", type = "U16", apiVersion = {12, 0, 8}, simResponse = {148, 7}, default = 1940, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.max_position)@" },
+  {field = "brake_position", type = "U16", apiVersion = {12, 0, 8}, simResponse = {76, 4}, default = 1100, min = 500, max = 2100, step = 10, unit = "us", help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.brake_position)@" },
+  {field = "bt_disable_motor_renable_button", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bt_disable_motor_renable_button)@" },
+  {field = "bt_disable_motor_renable_motor_stop", type = "U8", apiVersion = {12, 0, 8}, simResponse = { 0 }, default = 0, help = "@i18n(api.ESC_PARAMETERS_KONTRONIK.bt_disable_motor_renable_motor_stop)@" },
 }
 -- LuaFormatter on
 
@@ -80,7 +79,7 @@ local lastWriteUUID = nil
 local writeDoneRegistry = setmetatable({}, {__mode = "kv"})
 
 local function getFieldDefByName(fieldName)
-    for _, def in ipairs(MSP_API_STRUCTURE_READ) do
+    for _, def in ipairs(MSP_API_STRUCTURE_READ_DATA) do
         if def.field == fieldName then return def end
     end
     return nil
@@ -237,7 +236,7 @@ local function buildKontronikSimulatorResponse()
         for i = 1, 16 do out[#out + 1] = 0 end
     end
 
-    for _, def in ipairs(MSP_API_STRUCTURE_READ) do
+    for _, def in ipairs(MSP_API_STRUCTURE_READ_DATA) do
         local reg = FIELD_TO_REG[def.field]
         if reg ~= nil then
             local n = decodeSimValueFromDef(def)
@@ -270,6 +269,83 @@ local function buildKontronikSimulatorResponse()
 end
 
 local KONTRONIK_SIMULATOR_RESPONSE = buildKontronikSimulatorResponse()
+
+local function toIntOrDefault(v, defaultValue)
+    local n = tonumber(v)
+    if n == nil then return defaultValue end
+    return math.floor(n)
+end
+
+local function getPendingOrParsedValue(fieldName, parsed, fallback)
+    if payloadData[fieldName] ~= nil then return toIntOrDefault(payloadData[fieldName], fallback) end
+    if parsed and parsed[fieldName] ~= nil then return toIntOrDefault(parsed[fieldName], fallback) end
+    return fallback
+end
+
+local function buildSummary16388ForWrite(parsed, currentSummary)
+    local summary = toIntOrDefault(currentSummary, 0)
+
+    -- Rebuild managed bits from current state + pending UI changes.
+    summary = summary & ~SUMMARY_BATTERY_MASK
+    summary = summary & ~0x0040
+    for _, mask in pairs(SUMMARY_FIELD_BITS) do
+        summary = summary & ~mask
+    end
+
+    local batteryType = getPendingOrParsedValue("battery_type", parsed, 0) & 0x03
+    summary = summary | ((batteryType << 2) & SUMMARY_BATTERY_MASK)
+
+    local howAdj = getPendingOrParsedValue("how_adj_max_rpm", parsed, 0)
+    if howAdj == 1 then summary = summary | 0x0040 end
+
+    for field, mask in pairs(SUMMARY_FIELD_BITS) do
+        local v = getPendingOrParsedValue(field, parsed, 0)
+        if v ~= 0 then summary = summary | mask end
+    end
+
+    if payloadData.summary_16388 ~= nil then
+        summary = toIntOrDefault(payloadData.summary_16388, summary)
+    end
+
+    return summary & 0xFFFFFF
+end
+
+local function buildKontronikWritePayload()
+    if mspData == nil or mspData.other == nil or mspData.other.registers == nil then
+        return nil, "read_required_before_write"
+    end
+
+    local registers = {}
+    for reg, value in pairs(mspData.other.registers) do
+        registers[reg] = toIntOrDefault(value, 0)
+    end
+
+    local parsed = mspData.parsed or {}
+    for fieldName, value in pairs(payloadData) do
+        local reg = FIELD_TO_REG[fieldName]
+        if reg ~= nil then registers[reg] = toIntOrDefault(value, registers[reg] or 0) end
+    end
+
+    registers[SUMMARY_REG] = buildSummary16388ForWrite(parsed, registers[SUMMARY_REG] or 0)
+
+    local out = {}
+    out[#out + 1] = MSP_SIGNATURE
+    out[#out + 1] = ESC_WRITE_VERSION
+    appendModel16(out, parsed.esc_model)
+    out[#out + 1] = KONTRONIK_PARAM_SLOT_COUNT
+
+    for slot = 1, KONTRONIK_PARAM_SLOT_COUNT do
+        local reg = KONTRONIK_PARAM_SLOT_REGS[slot]
+        local value = registers[reg] or 0
+        appendSlotValue(out, slot, value)
+    end
+
+    if #out ~= KONTRONIK_FIXED_PAYLOAD_BYTES then
+        return nil, "write_payload_size_mismatch"
+    end
+
+    return out
+end
 
 local function readU16LE(buf, pos)
     local b0 = buf[pos]
@@ -416,12 +492,13 @@ local function write(suppliedPayload)
         return
     end
 
-    local payload
+    local payload, err
     if type(suppliedPayload) == "table" and #suppliedPayload > 0 and suppliedPayload[1] ~= nil then
         -- Keep compatibility with callers that pass a prebuilt byte stream.
         payload = suppliedPayload
     else
-        return false, "prebuilt_payload_required"
+        payload, err = buildKontronikWritePayload()
+        if not payload then return false, err or "write_payload_build_failed" end
     end
     if type(payload) ~= "table" or #payload == 0 then
         return false, "empty_payload"

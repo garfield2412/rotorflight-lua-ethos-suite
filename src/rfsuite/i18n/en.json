@@ -445,14 +445,14 @@
               "translation": "Brake Position"
       },
       "bt_disable_motor_renable_button": {
-        "english": "Disable at Motor-Start; Renable with Button",
+        "english": "Disabled by default; because we will loose ESC Params and Telemetry",
         "needs_translation": false,
-        "translation": "Disable at Motor-Start; Renable with Button"
+        "translation": "Disabled by default; because we will loose ESC Params and Telemetry"
       },
       "bt_disable_motor_renable_motor_stop": {
-        "english": "Disable at Motor-Start; Renable on Motor Stop",
+        "english": "Disabled by default; because we will loose ESC Params and Telemetry",
         "needs_translation": false,
-        "translation": "Disable at Motor-Start; Renable on Motor Stop"
+        "translation": "Disabled by default; because we will loose ESC Params and Telemetry"
       }
     },
     "ESC_PARAMETERS_OMP": {
