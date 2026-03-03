@@ -71,8 +71,6 @@ local defaultData = {}
 local handlers = core.createHandlers()
 
 local MSP_API_UUID
--- Keep below UI request watchdog (~2s) to avoid overlapping retry cascades on page switches.
-local MSP_API_MSG_TIMEOUT = 1.8
 
 local lastWriteUUID = nil
 
@@ -183,12 +181,6 @@ local function appendU16LE(out, value)
     out[#out + 1] = (value >> 8) & 0xFF
 end
 
-local function appendU24LE(out, value)
-    out[#out + 1] = value & 0xFF
-    out[#out + 1] = (value >> 8) & 0xFF
-    out[#out + 1] = (value >> 16) & 0xFF
-end
-
 local function appendSlotValue(out, slot, value)
     appendU16LE(out, value)
     if slot == SLOT28_INDEX then out[#out + 1] = (value >> 16) & 0xFF end
@@ -276,51 +268,46 @@ local function toIntOrDefault(v, defaultValue)
     return math.floor(n)
 end
 
-local function getPendingOrParsedValue(fieldName, parsed, fallback)
-    if payloadData[fieldName] ~= nil then return toIntOrDefault(payloadData[fieldName], fallback) end
-    if parsed and parsed[fieldName] ~= nil then return toIntOrDefault(parsed[fieldName], fallback) end
-    return fallback
-end
+local function buildSummary16388ForWrite(_, currentSummary)
+    local summary = toIntOrDefault(currentSummary, 0) & 0xFFFFFF
 
-local function buildSummary16388ForWrite(parsed, currentSummary)
-    local summary = toIntOrDefault(currentSummary, 0)
-
-    -- Rebuild managed bits from current state + pending UI changes.
-    summary = summary & ~SUMMARY_BATTERY_MASK
-    summary = summary & ~0x0040
-    for _, mask in pairs(SUMMARY_FIELD_BITS) do
-        summary = summary & ~mask
+    -- Optional full override from UI cache/state.
+    if payloadData.summary_16388 ~= nil then
+        summary = toIntOrDefault(payloadData.summary_16388, summary) & 0xFFFFFF
     end
 
-    local batteryType = getPendingOrParsedValue("battery_type", parsed, 0) & 0x03
-    summary = summary | ((batteryType << 2) & SUMMARY_BATTERY_MASK)
+    -- Explicit field overrides always win over summary_16388.
+    if payloadData.battery_type ~= nil then
+        local batteryType = toIntOrDefault(payloadData.battery_type, (summary >> 2) & 0x03) & 0x03
+        summary = (summary & ~SUMMARY_BATTERY_MASK) | ((batteryType << 2) & SUMMARY_BATTERY_MASK)
+    end
 
-    local howAdj = getPendingOrParsedValue("how_adj_max_rpm", parsed, 0)
-    if howAdj == 1 then summary = summary | 0x0040 end
+    if payloadData.how_adj_max_rpm ~= nil then
+        local howAdj = toIntOrDefault(payloadData.how_adj_max_rpm, ((summary & 0x0040) ~= 0) and 1 or 0)
+        summary = summary & ~0x0040
+        if howAdj ~= 0 then summary = summary | 0x0040 end
+    end
 
     for field, mask in pairs(SUMMARY_FIELD_BITS) do
-        local v = getPendingOrParsedValue(field, parsed, 0)
-        if v ~= 0 then summary = summary | mask end
-    end
-
-    if payloadData.summary_16388 ~= nil then
-        summary = toIntOrDefault(payloadData.summary_16388, summary)
+        if payloadData[field] ~= nil then
+            local v = toIntOrDefault(payloadData[field], 0)
+            summary = summary & ~mask
+            if v ~= 0 then summary = summary | mask end
+        end
     end
 
     return summary & 0xFFFFFF
 end
 
 local function buildKontronikWritePayload()
-    if mspData == nil or mspData.other == nil or mspData.other.registers == nil then
-        return nil, "read_required_before_write"
-    end
-
     local registers = {}
-    for reg, value in pairs(mspData.other.registers) do
-        registers[reg] = toIntOrDefault(value, 0)
+    if mspData and mspData.other and mspData.other.registers then
+        for reg, value in pairs(mspData.other.registers) do
+            registers[reg] = toIntOrDefault(value, 0)
+        end
     end
 
-    local parsed = mspData.parsed or {}
+    local parsed = (mspData and mspData.parsed) or {}
     for fieldName, value in pairs(payloadData) do
         local reg = FIELD_TO_REG[fieldName]
         if reg ~= nil then registers[reg] = toIntOrDefault(value, registers[reg] or 0) end
@@ -331,7 +318,7 @@ local function buildKontronikWritePayload()
     local out = {}
     out[#out + 1] = MSP_SIGNATURE
     out[#out + 1] = ESC_WRITE_VERSION
-    appendModel16(out, parsed.esc_model)
+    appendModel16(out, parsed.esc_model or payloadData.esc_model)
     out[#out + 1] = KONTRONIK_PARAM_SLOT_COUNT
 
     for slot = 1, KONTRONIK_PARAM_SLOT_COUNT do
@@ -482,7 +469,7 @@ local function read()
     end
 
     -- Keep last known-good data until a new valid frame is parsed.
-    local message = {command = MSP_API_CMD_READ, apiname=API_NAME, structure = MSP_API_STRUCTURE_READ, minBytes = MSP_MIN_BYTES, processReply = processReplyStaticRead, errorHandler = errorHandlerStatic, simulatorResponse = KONTRONIK_SIMULATOR_RESPONSE, uuid = MSP_API_UUID, timeout = MSP_API_MSG_TIMEOUT, getCompleteHandler = handlers.getCompleteHandler, getErrorHandler = handlers.getErrorHandler, mspData = nil}
+    local message = {command = MSP_API_CMD_READ, apiname=API_NAME, structure = MSP_API_STRUCTURE_READ, minBytes = MSP_MIN_BYTES, processReply = processReplyStaticRead, errorHandler = errorHandlerStatic, simulatorResponse = KONTRONIK_SIMULATOR_RESPONSE, uuid = MSP_API_UUID, getCompleteHandler = handlers.getCompleteHandler, getErrorHandler = handlers.getErrorHandler, mspData = nil}
     rfsuite.tasks.msp.mspQueue:add(message)
 end
 
@@ -507,9 +494,9 @@ local function write(suppliedPayload)
     local uuid = MSP_API_UUID or rfsuite.utils and rfsuite.utils.uuid and rfsuite.utils.uuid() or tostring(os.clock())
     lastWriteUUID = uuid
 
-    local message = {command = MSP_API_CMD_WRITE, apiname = API_NAME, payload = payload, processReply = processReplyStaticWrite, errorHandler = errorHandlerStatic, simulatorResponse = {}, uuid = uuid, timeout = MSP_API_MSG_TIMEOUT, getCompleteHandler = handlers.getCompleteHandler, getErrorHandler = handlers.getErrorHandler}
+    local message = {command = MSP_API_CMD_WRITE, apiname = API_NAME, payload = payload, processReply = processReplyStaticWrite, errorHandler = errorHandlerStatic, simulatorResponse = {}, uuid = uuid, getCompleteHandler = handlers.getCompleteHandler, getErrorHandler = handlers.getErrorHandler}
 
-    rfsuite.tasks.msp.mspQueue:add(message)
+    return rfsuite.tasks.msp.mspQueue:add(message)
 end
 
 local function readValue(fieldName)
@@ -529,8 +516,6 @@ local function data() return mspData end
 
 local function setUUID(uuid) MSP_API_UUID = uuid end
 
-local function setTimeout(timeout) MSP_API_MSG_TIMEOUT = timeout end
-
 local function setRebuildOnWrite(rebuild) MSP_REBUILD_ON_WRITE = rebuild end
 
-return {read = read, write = write, setRebuildOnWrite = setRebuildOnWrite, readComplete = readComplete, writeComplete = writeComplete, readValue = readValue, setValue = setValue, resetWriteStatus = resetWriteStatus, setCompleteHandler = handlers.setCompleteHandler, setErrorHandler = handlers.setErrorHandler, data = data, setUUID = setUUID, setTimeout = setTimeout, mspSignature = MSP_SIGNATURE, mspHeaderBytes = MSP_HEADER_BYTES, simulatorResponse = KONTRONIK_SIMULATOR_RESPONSE}
+return {read = read, write = write, setRebuildOnWrite = setRebuildOnWrite, readComplete = readComplete, writeComplete = writeComplete, readValue = readValue, setValue = setValue, resetWriteStatus = resetWriteStatus, setCompleteHandler = handlers.setCompleteHandler, setErrorHandler = handlers.setErrorHandler, data = data, setUUID = setUUID, mspSignature = MSP_SIGNATURE, mspHeaderBytes = MSP_HEADER_BYTES, simulatorResponse = KONTRONIK_SIMULATOR_RESPONSE}
