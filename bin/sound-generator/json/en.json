@@ -221,6 +221,12 @@
     "translation": "P",
     "needs_translation": false
   },
+    {
+    "file": "adjfunctions/b.wav",
+    "english": "B",
+    "translation": "B",
+    "needs_translation": false
+  },
   {
     "file": "adjfunctions/i.wav",
     "english": "I",
@@ -483,6 +489,12 @@
     "file": "status/alerts/voltage.wav",
     "english": "voltage",
     "translation": "voltage",
+    "needs_translation": false
+  },
+  {
+    "file": "events/alerts/battery.wav",
+    "english": "Battery",
+    "translation": "Battery ",
     "needs_translation": false
   }
 ]
