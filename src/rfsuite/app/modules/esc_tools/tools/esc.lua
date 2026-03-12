@@ -20,6 +20,7 @@ local MFG_INDEX = {
     {folder = "am32",  toolName = "AM32",                                         image = "am32.jpg",      apiversion = {12, 0, 9}, script = FOUR_WAY_TOOL_SCRIPT},
     {folder = "flrtr", toolName = "@i18n(app.modules.esc_tools.mfg.flrtr.name)@", image = "flrtr.png",     apiversion = {12, 0, 7}},
     {folder = "hw5",   toolName = "@i18n(app.modules.esc_tools.mfg.hw5.name)@",   image = "hobbywing.png", apiversion = {12, 0, 6}},
+    {folder = "kontr", toolName = "@i18n(app.modules.esc_tools.mfg.kontr.name)@", image = "kontronik.png", apiversion = {12, 0, 9}},
     {folder = "omp",   toolName = "@i18n(app.modules.esc_tools.mfg.omp.name)@",   image = "omp.png",       apiversion = {12, 0, 9}},
     {folder = "scorp", toolName = "@i18n(app.modules.esc_tools.mfg.scorp.name)@", image = "scorpion.png",  apiversion = {12, 0, 6}},
     {folder = "xdfly", toolName = "@i18n(app.modules.esc_tools.mfg.xdfly.name)@", image = "xdfly.png",     apiversion = {12, 0, 8}},
