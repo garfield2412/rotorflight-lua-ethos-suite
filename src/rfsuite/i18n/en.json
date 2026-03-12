@@ -4377,6 +4377,14 @@
               "translation": "Variable PWM Frequency"
             }
           },
+          "cc": {
+            "name": {
+              "english": "Castle",
+              "max_length": 6,
+              "needs_translation": false,
+              "translation": "Castle"
+            }
+          },
           "flrtr": {
             "active_freewheel": {
               "english": "Active Freewheeling",
