@@ -20,21 +20,20 @@ local BLOCK_SELECTOR_HIGH = 0x00
 local BLOCK_SELECTOR_LOW = 0x00
 local READ_FILLER = 0xFF
 
--- This first Castle implementation intentionally only covers the first
--- 8-byte 0x60 block from the current reverse-engineering work.
--- The field names below follow the strongest current mapping hypothesis.
 -- LuaFormatter off
 local MSP_API_STRUCTURE_READ_DATA = {
-    {field = "esc_command",         type = "U8", apiVersion = {12, 0, 9}, simResponse = {0}},
-    {field = "esc_model",           type = "U8", apiVersion = {12, 0, 9}, simResponse = {23}},
-    {field = "esc_version",         type = "U8", apiVersion = {12, 0, 9}, simResponse = {3}},
-    {field = "motor_timing",        type = "U8", apiVersion = {12, 0, 9}, simResponse = {5}},
-    {field = "cutoff_voltage",      type = "U8", apiVersion = {12, 0, 9}, simResponse = {3}},
-    {field = "current_limiting",    type = "U8", apiVersion = {12, 0, 9}, simResponse = {120}},
-    {field = "brake_strength",      type = "U8", apiVersion = {12, 0, 9}, simResponse = {1}},
-    {field = "voltage_cutoff_type", type = "U8", apiVersion = {12, 0, 9}, simResponse = {1}},
-    {field = "pwm_rate",            type = "U8", apiVersion = {12, 0, 9}, simResponse = {1}},
-    {field = "direction",           type = "U8", apiVersion = {12, 0, 9}, simResponse = {1}},
+    {field = "esc_signature",       type = "U8",   apiVersion = {12, 0, 9}, simResponse = {170}},
+    {field = "esc_command",         type = "U8",   apiVersion = {12, 0, 9}, simResponse = {0}},
+    {field = "esc_model",           type = "U128", apiVersion = {12, 0, 9}, simResponse = {69, 68, 71, 69, 32, 72, 86, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+    {field = "esc_version",         type = "U128", apiVersion = {12, 0, 9}, simResponse = {49, 54, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+    {field = "esc_firmware",        type = "U128", apiVersion = {12, 0, 9}, simResponse = {52, 46, 50, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+    {field = "motor_timing",        type = "U8",   apiVersion = {12, 0, 9}, simResponse = {5}},
+    {field = "cutoff_voltage",      type = "U8",   apiVersion = {12, 0, 9}, simResponse = {3}},
+    {field = "current_limiting",    type = "U8",   apiVersion = {12, 0, 9}, simResponse = {120}},
+    {field = "brake_strength",      type = "U8",   apiVersion = {12, 0, 9}, simResponse = {1}},
+    {field = "voltage_cutoff_type", type = "U8",   apiVersion = {12, 0, 9}, simResponse = {1}},
+    {field = "pwm_rate",            type = "U8",   apiVersion = {12, 0, 9}, simResponse = {1}},
+    {field = "direction",           type = "U8",   apiVersion = {12, 0, 9}, simResponse = {1}},
 }
 -- LuaFormatter on
 
