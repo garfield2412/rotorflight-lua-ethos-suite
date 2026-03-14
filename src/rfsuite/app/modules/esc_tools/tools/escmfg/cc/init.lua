@@ -24,4 +24,3 @@ local function getEscVersion(buffer) return getText(buffer, 19, 34) end
 local function getEscFirmware(buffer) return getText(buffer, 35, 50) end
 
 return {mspapi = "ESC_PARAMETERS_CASTLE", toolName = toolName, powerCycle = false, getEscModel = getEscModel, getEscVersion = getEscVersion, getEscFirmware = getEscFirmware, mspHeaderBytes = mspHeaderBytes}
-

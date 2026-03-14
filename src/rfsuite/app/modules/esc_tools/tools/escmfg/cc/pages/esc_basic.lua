@@ -13,7 +13,7 @@ local apidata = {
         [1] = "ESC_PARAMETERS_CASTLE"
     },
     formdata = {
-        labels = {}
+        labels = {},
         fields = {
             {t = "@i18n(app.modules.esc_tools.mfg.cc.motor_timing)@",    type = 1, mspapi = 1, apikey = "motor_timing"},
             {t = "@i18n(app.modules.esc_tools.mfg.cc.cutoff_voltage)@",       type = 1, mspapi = 1, apikey = "cutoff_voltage"},

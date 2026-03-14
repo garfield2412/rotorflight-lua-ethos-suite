@@ -20,6 +20,31 @@ local BLOCK_SELECTOR_HIGH = 0x00
 local BLOCK_SELECTOR_LOW = 0x00
 local READ_FILLER = 0xFF
 
+-- Cross-check against:
+--   C:\Users\kayko\OneDrive\Dokumente\PlatformIO\Projects\CastleLink\
+-- Current takeaway from that project:
+-- - Session 7 / Session 8 do not support a "5 blocks of 13 payload bytes"
+--   model. They support 13-byte transport frames with an 8-byte body.
+-- - The observed config-read burst is five selectors:
+--     00 00, 00 80, 00 40, 00 C0, 00 20
+-- - The strongest current interpretation there is:
+--     00 00 -> simple scalar settings region
+--     00 80 -> Advanced Throttle composite region
+--     00 40 -> Advanced Throttle composite region
+--     00 C0 -> Advanced Throttle companion/composite region
+--     00 20 -> tail region with scalar/packed values
+-- - Highest-confidence byte anchors from that material are:
+--     00 00 byte 1 = motor timing candidate (90)
+--     00 00 byte 2 = cutoff voltage / Auto Li-Po candidate (255)
+--     00 00 byte 4 = brake strength candidate (0)
+--     00 00 byte 7 = direction candidate (0)
+--     00 80 byte 5 = throttle/vehicle mode selector candidate (72 -> 32)
+--     00 C0 byte 5 = dependent companion byte candidate (0 -> 152)
+--     00 20 byte 5 = governor gain candidate (15)
+-- - Therefore the parser layout below should currently be read as a
+--   Rotorflight-side working format, not as a proven raw CastleLink wire map
+--   for model/version/firmware fields.
+
 -- LuaFormatter off
 local MSP_API_STRUCTURE_READ_DATA = {
     {field = "esc_signature",       type = "U8",   apiVersion = {12, 0, 9}, simResponse = {170}},
@@ -55,6 +80,26 @@ local function parseRead(buf)
 end
 
 local function buildReadPayload()
+    -- Current Castle read approach:
+    -- Queue a regular MSP read with command 217 (MSP_API_CMD_READ) and a fixed
+    -- 10-byte payload selecting block 0x0000.
+    -- CastleLink Session 7/8 currently suggest that a transport-faithful probe
+    -- should validate these selector pairs first:
+    --   0x00 0x00
+    --   0x00 0x80
+    --   0x00 0x40
+    --   0x00 0xC0
+    --   0x00 0x20
+    -- The current implementation still only issues the first selector
+    -- (0x00, 0x00) here.
+    -- Payload sent today:
+    --   0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF
+    -- Interpreted as:
+    --   [1] block selector high = 0x00
+    --   [2] block selector low  = 0x00
+    --   [3..10] read filler     = 0xFF
+    -- The reply is then parsed as Castle data with the first 2 bytes reserved
+    -- for the Castle header/signature area (see mspHeaderBytes/MSP_HEADER_BYTES).
     return {
         BLOCK_SELECTOR_HIGH,
         BLOCK_SELECTOR_LOW,
