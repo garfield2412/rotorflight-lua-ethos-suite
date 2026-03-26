@@ -108,17 +108,13 @@ local function buildBoxes(W)
             min = function()
                 local override = getUserVoltageOverride("v_min")
                 if override then return override end
-                local cfg = rfsuite.session.batteryConfig
-                local cells = (cfg and cfg.batteryCellCount) or 3
-                local minV = (cfg and cfg.vbatmincellvoltage) or 3.0
+                local cells, minV = utils.getBatteryVoltageBounds(3, 3.0, 4.2)
                 return max(0, cells * minV)
             end,
             max = function()
                 local override = getUserVoltageOverride("v_max")
                 if override then return override end
-                local cfg = rfsuite.session.batteryConfig
-                local cells = (cfg and cfg.batteryCellCount) or 3
-                local maxV = (cfg and cfg.vbatfullcellvoltage) or 4.2
+                local cells, _, maxV = utils.getBatteryVoltageBounds(3, 3.0, 4.2)
                 return max(0, cells * maxV)
             end,
 
@@ -168,7 +164,7 @@ local function buildBoxes(W)
             max = 100,
             font = "FONT_XXL",
             fillbgcolor = colorMode.fillbgcolor,
-            title = "@i18n(widgets.dashboard.fuel):upper()@",
+            title = function() return utils.isElectricEngine() and "@i18n(widgets.dashboard.battery):upper()@" or "@i18n(widgets.dashboard.fuel):upper()@" end,
             titlepos = "bottom",
             titlecolor = colorMode.titlecolor,
             textcolor = colorMode.titlecolor,

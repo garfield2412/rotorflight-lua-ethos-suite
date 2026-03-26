@@ -556,6 +556,12 @@ return {
                     script = "source.lua",
                     shortcutId = "s_power_source_lua_6d24f8cd57",
                 },
+                {
+                    image = "preferences.png",
+                    name = "@i18n(app.modules.power.preferences_name)@",
+                    script = "preferences.lua",
+                    shortcutId = "s_power_preferences_lua_2bae48fe41",
+                },
             },
             scriptPrefix = "power/tools/",
             title = "@i18n(app.modules.power.name)@",
@@ -612,6 +618,12 @@ return {
                     name = "@i18n(app.modules.rates_advanced.advanced)@",
                     script = "advanced.lua",
                     shortcutId = "s_rates_advanced_advanced_lua_5673f8caee",
+                },
+                {
+                    image = "cyclic_behaviour.png",
+                    name = "@i18n(app.modules.rates_advanced.cyclic_behaviour)@",
+                    script = "cyclic_behaviour.lua",
+                    shortcutId = "s_rates_advanced_cyclic_behaviour_lua_df5de615f1",
                 },
                 {
                     image = "table.png",

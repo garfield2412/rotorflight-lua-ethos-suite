@@ -124,6 +124,27 @@
         "reverse_text": false,
         "translation": "增减以匹配飞行中看到的电压下垂。"
       },
+      "tbl_auto": {
+        "english": "Auto",
+        "max_length": 4,
+        "needs_translation": true,
+        "reverse_text": false,
+        "translation": "Auto"
+      },
+      "tbl_electric": {
+        "english": "Electric",
+        "max_length": 8,
+        "needs_translation": true,
+        "reverse_text": false,
+        "translation": "Electric"
+      },
+      "tbl_nitro": {
+        "english": "Nitro",
+        "max_length": 5,
+        "needs_translation": true,
+        "reverse_text": false,
+        "translation": "Nitro"
+      },
       "tbl_off": {
         "english": "Current Sensor",
         "max_length": 14,
@@ -2604,6 +2625,20 @@
         "needs_translation": false,
         "reverse_text": false,
         "translation": "设定点 Boost 增益。"
+      },
+      "tbl_off": {
+        "english": "OFF",
+        "max_length": 3,
+        "needs_translation": true,
+        "reverse_text": false,
+        "translation": "OFF"
+      },
+      "tbl_on": {
+        "english": "ON",
+        "max_length": 2,
+        "needs_translation": true,
+        "reverse_text": false,
+        "translation": "ON"
       },
       "yaw_dynamic_ceiling_gain": {
         "english": "The maximum gain applied to the yaw dynamic ceiling.",
@@ -5092,6 +5127,127 @@
               "needs_translation": true,
               "reverse_text": false,
               "translation": "Variable PWM Frequency"
+            }
+          },
+          "blheli_s": {
+            "advanced": {
+              "english": "Advanced",
+              "max_length": 8,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Advanced"
+            },
+            "basic": {
+              "english": "Basic",
+              "max_length": 5,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Basic"
+            },
+            "beacondelay": {
+              "english": "Beacon Delay",
+              "max_length": 12,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Beacon Delay"
+            },
+            "beaconstrength": {
+              "english": "Beacon Strength",
+              "max_length": 15,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Beacon Strength"
+            },
+            "beepstrength": {
+              "english": "Beep Strength",
+              "max_length": 13,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Beep Strength"
+            },
+            "brakeonstop": {
+              "english": "Brake on Stop",
+              "max_length": 13,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Brake on Stop"
+            },
+            "demagcompensation": {
+              "english": "Demag Compensation",
+              "max_length": 18,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Demag Compensation"
+            },
+            "input": {
+              "english": "Input",
+              "max_length": 5,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Input"
+            },
+            "motordirection": {
+              "english": "Motor Direction",
+              "max_length": 15,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Motor Direction"
+            },
+            "motortiming": {
+              "english": "Motor Timing",
+              "max_length": 12,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Motor Timing"
+            },
+            "name": {
+              "english": "BLHeli_S",
+              "max_length": 8,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "BLHeli_S"
+            },
+            "ppmcenterthrottle": {
+              "english": "PPM Center Throttle",
+              "max_length": 19,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "PPM Center Throttle"
+            },
+            "ppmmaxthrottle": {
+              "english": "PPM Max Throttle",
+              "max_length": 16,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "PPM Max Throttle"
+            },
+            "ppmminthrottle": {
+              "english": "PPM Min Throttle",
+              "max_length": 16,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "PPM Min Throttle"
+            },
+            "startuppower": {
+              "english": "Startup Power",
+              "max_length": 13,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Startup Power"
+            },
+            "temperatureprotection": {
+              "english": "Temperature Protection",
+              "max_length": 22,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Temperature Protection"
+            },
+            "waitingforesc": {
+              "english": "Waiting for ESC...",
+              "max_length": 18,
+              "needs_translation": true,
+              "reverse_text": false,
+              "translation": "Waiting for ESC..."
             }
           },
           "flrtr": {
@@ -8020,12 +8176,26 @@
           "reverse_text": false,
           "translation": "单体最低电压"
         },
+        "model_type": {
+          "english": "Power Type",
+          "max_length": 10,
+          "needs_translation": true,
+          "reverse_text": false,
+          "translation": "Model Type"
+        },
         "name": {
           "english": "Power",
           "max_length": 5,
           "needs_translation": false,
           "reverse_text": false,
           "translation": "电源"
+        },
+        "preferences_name": {
+          "english": "Preferences",
+          "max_length": 11,
+          "needs_translation": true,
+          "reverse_text": false,
+          "translation": "Preferences"
         },
         "rx_voltage_alert": {
           "english": "RxBatt Alert Value",
@@ -9386,6 +9556,27 @@
           "reverse_text": false,
           "translation": "Col"
         },
+        "cyclic_behaviour": {
+          "english": "Cyclic Behaviour",
+          "max_length": 16,
+          "needs_translation": true,
+          "reverse_text": false,
+          "translation": "Cyclic Behaviour"
+        },
+        "cyclic_polarity": {
+          "english": "Cyclic polarity",
+          "max_length": 15,
+          "needs_translation": true,
+          "reverse_text": false,
+          "translation": "Cyclic polarity"
+        },
+        "cyclic_ring": {
+          "english": "Cyclic ring",
+          "max_length": 11,
+          "needs_translation": true,
+          "reverse_text": false,
+          "translation": "Cyclic ring"
+        },
         "dyn_ceiling_gain": {
           "english": "Dynamic ceiling gain",
           "max_length": 20,
@@ -10197,6 +10388,13 @@
           "reverse_text": false,
           "translation": "Display"
         },
+        "panel_engine": {
+          "english": "Engine",
+          "max_length": 6,
+          "needs_translation": true,
+          "reverse_text": false,
+          "translation": "Engine"
+        },
         "panel_integration": {
           "english": "Integration",
           "max_length": 11,
@@ -10595,6 +10793,20 @@
           "needs_translation": false,
           "reverse_text": false,
           "translation": "小"
+        },
+        "txt_smartfuel_autodetect_model_type": {
+          "english": "Autodetect Model Type",
+          "max_length": 21,
+          "needs_translation": true,
+          "reverse_text": false,
+          "translation": "Autodetect Model Type"
+        },
+        "txt_smartfuel_force_nitro": {
+          "english": "Force Model Type: Nitro",
+          "max_length": 23,
+          "needs_translation": true,
+          "reverse_text": false,
+          "translation": "Force Model Type: Nitro"
         },
         "txt_syncname": {
           "english": "Sync model name",
@@ -11423,10 +11635,11 @@
         "translation": "最大高度"
       },
       "battery": {
-        "english": "Battery Profile",
-        "max_length": 15,
-        "needs_translation": false,
-        "reverse_text": false
+        "english": "Battery",
+        "max_length": 7,
+        "needs_translation": true,
+        "reverse_text": false,
+        "translation": "Battery"
       },
       "battery_profile": {
         "english": "Battery Profile",

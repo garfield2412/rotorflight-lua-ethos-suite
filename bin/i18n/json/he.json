@@ -117,6 +117,27 @@
         "translation": "חשב דלק באמצעות",
         "reverse_text": true
       },
+      "tbl_auto": {
+        "english": "Auto",
+        "translation": "Auto",
+        "needs_translation": true,
+        "reverse_text": false,
+        "max_length": 4
+      },
+      "tbl_electric": {
+        "english": "Electric",
+        "translation": "Electric",
+        "needs_translation": true,
+        "reverse_text": false,
+        "max_length": 8
+      },
+      "tbl_nitro": {
+        "english": "Nitro",
+        "translation": "Nitro",
+        "needs_translation": true,
+        "reverse_text": false,
+        "max_length": 5
+      },
       "sag_multiplier": {
         "english": "Raise or lower to adjust for the amount of voltage sag you see in flight.",
         "max_length": 73,
@@ -2493,6 +2514,20 @@
       }
     },
     "RC_TUNING": {
+      "tbl_off": {
+        "english": "OFF",
+        "translation": "OFF",
+        "needs_translation": true,
+        "reverse_text": false,
+        "max_length": 3
+      },
+      "tbl_on": {
+        "english": "ON",
+        "translation": "ON",
+        "needs_translation": true,
+        "reverse_text": false,
+        "max_length": 2
+      },
       "accel_limit_1": {
         "english": "Maximum acceleration of the craft in response to a stick movement.",
         "max_length": 66,
@@ -5092,6 +5127,127 @@
               "needs_translation": true,
               "reverse_text": false,
               "max_length": 12
+            }
+          },
+          "blheli_s": {
+            "advanced": {
+              "english": "Advanced",
+              "translation": "Advanced",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 8
+            },
+            "basic": {
+              "english": "Basic",
+              "translation": "Basic",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 5
+            },
+            "beacondelay": {
+              "english": "Beacon Delay",
+              "translation": "Beacon Delay",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 12
+            },
+            "beaconstrength": {
+              "english": "Beacon Strength",
+              "translation": "Beacon Strength",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 15
+            },
+            "beepstrength": {
+              "english": "Beep Strength",
+              "translation": "Beep Strength",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 13
+            },
+            "brakeonstop": {
+              "english": "Brake on Stop",
+              "translation": "Brake on Stop",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 13
+            },
+            "demagcompensation": {
+              "english": "Demag Compensation",
+              "translation": "Demag Compensation",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 18
+            },
+            "input": {
+              "english": "Input",
+              "translation": "Input",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 5
+            },
+            "motordirection": {
+              "english": "Motor Direction",
+              "translation": "Motor Direction",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 15
+            },
+            "motortiming": {
+              "english": "Motor Timing",
+              "translation": "Motor Timing",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 12
+            },
+            "name": {
+              "english": "BLHeli_S",
+              "translation": "BLHeli_S",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 8
+            },
+            "ppmcenterthrottle": {
+              "english": "PPM Center Throttle",
+              "translation": "PPM Center Throttle",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 19
+            },
+            "ppmmaxthrottle": {
+              "english": "PPM Max Throttle",
+              "translation": "PPM Max Throttle",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 16
+            },
+            "ppmminthrottle": {
+              "english": "PPM Min Throttle",
+              "translation": "PPM Min Throttle",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 16
+            },
+            "startuppower": {
+              "english": "Startup Power",
+              "translation": "Startup Power",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 13
+            },
+            "temperatureprotection": {
+              "english": "Temperature Protection",
+              "translation": "Temperature Protection",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 22
+            },
+            "waitingforesc": {
+              "english": "Waiting for ESC...",
+              "translation": "Waiting for ESC...",
+              "needs_translation": true,
+              "reverse_text": false,
+              "max_length": 18
             }
           },
           "flrtr": {
@@ -7815,6 +7971,13 @@
           "translation": "מתח תא מרבי",
           "reverse_text": true
         },
+        "model_type": {
+          "english": "Power Type",
+          "translation": "Model Type",
+          "needs_translation": true,
+          "reverse_text": false,
+          "max_length": 10
+        },
         "min_cell_voltage": {
           "english": "Min Cell Voltage",
           "max_length": 16,
@@ -7849,6 +8012,13 @@
           "needs_translation": true,
           "translation": "מקורות",
           "reverse_text": true
+        },
+        "preferences_name": {
+          "english": "Preferences",
+          "translation": "Preferences",
+          "needs_translation": true,
+          "reverse_text": false,
+          "max_length": 11
         },
         "timer": {
           "english": "Flight Time Alarm",
@@ -9365,6 +9535,27 @@
         }
       },
       "rates_advanced": {
+        "cyclic_behaviour": {
+          "english": "Cyclic Behaviour",
+          "translation": "Cyclic Behaviour",
+          "needs_translation": true,
+          "reverse_text": false,
+          "max_length": 16
+        },
+        "cyclic_polarity": {
+          "english": "Cyclic polarity",
+          "translation": "Cyclic polarity",
+          "needs_translation": true,
+          "reverse_text": false,
+          "max_length": 15
+        },
+        "cyclic_ring": {
+          "english": "Cyclic ring",
+          "translation": "Cyclic ring",
+          "needs_translation": true,
+          "reverse_text": false,
+          "max_length": 11
+        },
         "acc_limit": {
           "english": "Accelerometer Limit",
           "max_length": 19,
@@ -10218,6 +10409,13 @@
           "reverse_text": false,
           "max_length": 7
         },
+        "panel_engine": {
+          "english": "Engine",
+          "translation": "Engine",
+          "needs_translation": true,
+          "reverse_text": false,
+          "max_length": 6
+        },
         "panel_integration": {
           "english": "Integration",
           "translation": "Integration",
@@ -10525,6 +10723,20 @@
           "needs_translation": true,
           "translation": "תצוגת פעילות MSP",
           "reverse_text": true
+        },
+        "txt_smartfuel_autodetect_model_type": {
+          "english": "Autodetect Model Type",
+          "translation": "Autodetect Model Type",
+          "needs_translation": true,
+          "reverse_text": false,
+          "max_length": 21
+        },
+        "txt_smartfuel_force_nitro": {
+          "english": "Force Model Type: Nitro",
+          "translation": "Force Model Type: Nitro",
+          "needs_translation": true,
+          "reverse_text": false,
+          "max_length": 23
         },
         "txt_objectprofiler": {
           "english": "Log dashboard speed",
@@ -11423,10 +11635,11 @@
         "reverse_text": true
       },
       "battery": {
-        "english": "Battery Profile",
-        "max_length": 15,
-        "needs_translation": false,
-        "reverse_text": false
+        "english": "Battery",
+        "translation": "Battery",
+        "needs_translation": true,
+        "reverse_text": false,
+        "max_length": 7
       },
       "battery_profile": {
         "english": "Battery Profile",

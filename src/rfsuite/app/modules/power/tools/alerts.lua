@@ -19,7 +19,6 @@ local apidata = {
     formdata = {
         labels = {},
         fields = {
-            {t = "@i18n(app.modules.power.calcfuel_local)@",             mspapi = 1, apikey = "calc_local", type = 1},
             {t = "@i18n(app.modules.power.timer)@",                      mspapi = 1, apikey = "flighttime"},
             {t = "@i18n(app.modules.power.voltage_multiplier)@",         mspapi = 1, apikey = "sag_multiplier"},
             {t = "@i18n(app.modules.power.alert_type)@",                 mspapi = 1, apikey = "alert_type", type = 1},

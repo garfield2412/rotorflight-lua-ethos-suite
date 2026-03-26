@@ -101,6 +101,24 @@
         "needs_translation": false,
         "translation": "Calculate Fuel Using"
       },
+      "tbl_auto": {
+        "english": "Auto",
+        "max_length": 4,
+        "needs_translation": false,
+        "translation": "Auto"
+      },
+      "tbl_electric": {
+        "english": "Electric",
+        "max_length": 8,
+        "needs_translation": false,
+        "translation": "Electric"
+      },
+      "tbl_nitro": {
+        "english": "Nitro",
+        "max_length": 5,
+        "needs_translation": false,
+        "translation": "Nitro"
+      },
       "sag_multiplier": {
         "english": "Raise or lower to adjust for the amount of voltage sag you see in flight.",
         "max_length": 73,
@@ -2143,6 +2161,18 @@
       }
     },
     "RC_TUNING": {
+      "tbl_off": {
+        "english": "OFF",
+        "max_length": 3,
+        "needs_translation": false,
+        "translation": "OFF"
+      },
+      "tbl_on": {
+        "english": "ON",
+        "max_length": 2,
+        "needs_translation": false,
+        "translation": "ON"
+      },
       "accel_limit_1": {
         "english": "Maximum acceleration of the craft in response to a stick movement.",
         "max_length": 66,
@@ -4375,6 +4405,110 @@
               "needs_translation": false,
               "translation": "Auto Advance",
               "max_length": 12
+            }
+          },
+          "blheli_s": {
+            "advanced": {
+              "english": "Advanced",
+              "needs_translation": false,
+              "translation": "Advanced",
+              "max_length": 8
+            },
+            "basic": {
+              "english": "Basic",
+              "needs_translation": false,
+              "translation": "Basic",
+              "max_length": 5
+            },
+            "beacondelay": {
+              "english": "Beacon Delay",
+              "needs_translation": false,
+              "translation": "Beacon Delay",
+              "max_length": 12
+            },
+            "beaconstrength": {
+              "english": "Beacon Strength",
+              "needs_translation": false,
+              "translation": "Beacon Strength",
+              "max_length": 15
+            },
+            "beepstrength": {
+              "english": "Beep Strength",
+              "needs_translation": false,
+              "translation": "Beep Strength",
+              "max_length": 13
+            },
+            "brakeonstop": {
+              "english": "Brake on Stop",
+              "needs_translation": false,
+              "translation": "Brake on Stop",
+              "max_length": 13
+            },
+            "demagcompensation": {
+              "english": "Demag Compensation",
+              "needs_translation": false,
+              "translation": "Demag Compensation",
+              "max_length": 18
+            },
+            "input": {
+              "english": "Input",
+              "needs_translation": false,
+              "translation": "Input",
+              "max_length": 5
+            },
+            "motordirection": {
+              "english": "Motor Direction",
+              "needs_translation": false,
+              "translation": "Motor Direction",
+              "max_length": 15
+            },
+            "motortiming": {
+              "english": "Motor Timing",
+              "needs_translation": false,
+              "translation": "Motor Timing",
+              "max_length": 12
+            },
+            "name": {
+              "english": "BLHeli_S",
+              "needs_translation": false,
+              "translation": "BLHeli_S",
+              "max_length": 8
+            },
+            "ppmcenterthrottle": {
+              "english": "PPM Center Throttle",
+              "needs_translation": false,
+              "translation": "PPM Center Throttle",
+              "max_length": 19
+            },
+            "ppmmaxthrottle": {
+              "english": "PPM Max Throttle",
+              "needs_translation": false,
+              "translation": "PPM Max Throttle",
+              "max_length": 16
+            },
+            "ppmminthrottle": {
+              "english": "PPM Min Throttle",
+              "needs_translation": false,
+              "translation": "PPM Min Throttle",
+              "max_length": 16
+            },
+            "startuppower": {
+              "english": "Startup Power",
+              "needs_translation": false,
+              "translation": "Startup Power",
+              "max_length": 13
+            },
+            "temperatureprotection": {
+              "english": "Temperature Protection",
+              "needs_translation": false,
+              "translation": "Temperature Protection",
+              "max_length": 22
+            },
+            "waitingforesc": {
+              "english": "Waiting for ESC...",
+              "needs_translation": false,
+              "translation": "Waiting for ESC...",
+              "max_length": 18
             }
           },
           "flrtr": {
@@ -6716,6 +6850,12 @@
           "translation": "Max Cell Voltage",
           "max_length": 16
         },
+        "model_type": {
+          "english": "Power Type",
+          "needs_translation": false,
+          "translation": "Power Type",
+          "max_length": 10
+        },
         "min_cell_voltage": {
           "english": "Min Cell Voltage",
           "needs_translation": false,
@@ -6745,6 +6885,12 @@
           "needs_translation": false,
           "translation": "Sources",
           "max_length": 7
+        },
+        "preferences_name": {
+          "english": "Preferences",
+          "needs_translation": false,
+          "translation": "Preferences",
+          "max_length": 11
         },
         "timer": {
           "english": "Flight Time Alarm",
@@ -8048,6 +8194,24 @@
         }
       },
       "rates_advanced": {
+        "cyclic_behaviour": {
+          "english": "Cyclic Behaviour",
+          "max_length": 16,
+          "needs_translation": false,
+          "translation": "Cyclic Behaviour"
+        },
+        "cyclic_polarity": {
+          "english": "Cyclic polarity",
+          "max_length": 15,
+          "needs_translation": false,
+          "translation": "Cyclic polarity"
+        },
+        "cyclic_ring": {
+          "english": "Cyclic ring",
+          "max_length": 11,
+          "needs_translation": false,
+          "translation": "Cyclic ring"
+        },
         "acc_limit": {
           "english": "Accelerometer Limit",
           "max_length": 19,
@@ -8780,6 +8944,12 @@
           "needs_translation": false,
           "translation": "Display"
         },
+        "panel_engine": {
+          "english": "Engine",
+          "max_length": 6,
+          "needs_translation": false,
+          "translation": "Engine"
+        },
         "panel_integration": {
           "english": "Integration",
           "max_length": 11,
@@ -9043,6 +9213,18 @@
           "max_length": 20,
           "needs_translation": false,
           "translation": "MSP Activity Display"
+        },
+        "txt_smartfuel_autodetect_model_type": {
+          "english": "Autodetect Model Type",
+          "max_length": 21,
+          "needs_translation": false,
+          "translation": "Autodetect Model Type"
+        },
+        "txt_smartfuel_force_nitro": {
+          "english": "Force Model Type: Nitro",
+          "max_length": 23,
+          "needs_translation": false,
+          "translation": "Force Model Type: Nitro"
         },
         "txt_objectprofiler": {
           "english": "Log dashboard speed",
@@ -9820,10 +10002,10 @@
         "translation": "Altitide Max"
       },
       "battery": {
-        "english": "Battery Profile",
-        "max_length": 15,
+        "english": "Battery",
+        "max_length": 7,
         "needs_translation": false,
-        "reverse_text": false
+        "translation": "Battery"
       },
       "battery_profile": {
         "english": "Battery Profile",
