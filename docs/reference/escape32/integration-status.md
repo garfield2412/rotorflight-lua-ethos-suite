@@ -152,6 +152,13 @@ Beschreibung des master72004eff-Stands als 17.2; er lag bereits nach 17.3.
 
 Aktueller Firmware-Codecommit:
 [118af7e9bb516e4b4eda6c24f2f49cf60cd88480](https://github.com/garfield2412/rotorflight-firmware/commit/118af7e9bb516e4b4eda6c24f2f49cf60cd88480).
-Der Suite-Companion-Workflow pinnt diesen Stand. Neue Remote-CI-Ergebnisse
-werden nach Abschluss ergänzt; die früheren CI-Links oben beziehen sich auf
-den jeweils ausdrücklich genannten ursprünglichen Codecommit.
+Der Suite-Companion-Workflow pinnt diesen Stand.
+[Firmware-CI 40831202850](https://github.com/garfield2412/rotorflight-firmware/actions/runs/40831202850)
+ist erfolgreich: nativer Core mit Sanitizern und STM32F7X2 Feature aus/an.
+Aktueller Suite-Codecommit:
+[a26d009e26e0a06c3daf1aad582db25dfb2e73bb](https://github.com/garfield2412/rotorflight-lua-ethos-suite/commit/a26d009e26e0a06c3daf1aad582db25dfb2e73bb).
+[Suite-CI 40831340474](https://github.com/garfield2412/rotorflight-lua-ethos-suite/actions/runs/40831340474)
+ist ebenfalls erfolgreich: 163 Codec-/Session-Checks, 46 Seitenchecks und echter
+C/Lua-Integrationstest mit 17.3 und verlorenen SAVE-/CLOSE-Antworten.
+Die früheren CI-Links und Größenmessungen oben beziehen sich auf den jeweils
+explizit genannten ursprünglichen Codecommit.
