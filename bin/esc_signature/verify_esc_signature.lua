@@ -821,12 +821,19 @@ local function runChecks()
         local key = "rfsuite." .. codecName:gsub("/", "."):gsub("%.lua$", "")
         package.loaded[key] = nil
         local codec = requireModule(codecName)
-        if tonumber(codec.EXPECTED_SIGNATURE) == nil then
+        if page == "esc_forward_escape32" then
+          -- CLI sessions negotiate capabilities and schema, not a vendor EEPROM signature.
+          local gated = codec.COMMAND == 0x5FE0 and codec.VERSION == 1
+            and type(codec.canRead) == "function" and type(codec.canWrite) == "function"
+            and not codec.canRead({result = 0, capabilities = 1, targets = 0})
+            and not codec.canWrite({capabilities = 15, readonly = false, schema = 0, revision = 17, patch = 2})
+          if not gated then ungated[#ungated + 1] = page .. " (no negotiated CLI gate)" end
+        elseif tonumber(codec.EXPECTED_SIGNATURE) == nil then
           ungated[#ungated + 1] = page .. " (" .. codecName .. ")"
         end
       end
     end
-    check(string.format("all %d ESC tool pages declare an EXPECTED_SIGNATURE", #pages),
+    check(string.format("all %d ESC tool pages gate vendor signature or CLI schema", #pages),
       #ungated == 0, table.concat(ungated, ", "))
   end
 
@@ -994,3 +1001,4 @@ if failures > 0 then
   os.exit(1)
 end
 out("OK")
+

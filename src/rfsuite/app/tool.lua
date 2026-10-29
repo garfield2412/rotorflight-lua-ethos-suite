@@ -84,6 +84,8 @@ end
 local developerModeEnabled = false
 
 local APP_SESSION_PACKAGE_KEYS = {
+  "rfsuite.lib.escape32_session",
+  "rfsuite.lib.msp_esc_parameters_escape32",
   "rfsuite.app.pages.esc_forward_4way",
   "rfsuite.app.pages.esc_forward_vendor",
 }
@@ -368,6 +370,9 @@ local MENUS = {
   developer_menu = {
     title = "@i18n(app.modules.settings.txt_developer)@",
     entries = {
+      -- Parent visibility supplies the developer gate. A visibleWhen on this
+      -- leaf would clear its armed lock in armed_gating.resolve().
+      {title = "ESCape32", icon = lcd.loadMask("app/gfx/esc_tools.png"), script = "app/pages/esc_forward_escape32.lua", lockedWhileArmed = true},
       {title = "@i18n(app.modules.msp_speed.name)@", icon = lcd.loadMask("app/gfx/developer_msp_speed.png"), script = "app/pages/developer_msp_speed.lua"},
       {title = "@i18n(app.modules.msp_exp.name)@", icon = lcd.loadMask("app/gfx/developer_msp_exp.png"), script = "app/pages/developer_msp_exp.lua"},
     },
@@ -704,3 +709,4 @@ local function init()
 end
 
 return {init = init}
+

@@ -1,6 +1,6 @@
 # Draft: ESCape32 forward programming through RF Ethos Suite
 
-Status: architecture proposal, **not implemented**. Researched 2026-10-29.
+Status: experimental fork implementation in progress; no production hardware adapter. Researched 2026-10-29.
 Scope: read and change ESC settings from the transmitter through Rotorflight.
 Firmware flashing is a separate bootloader workflow and is outside this draft.
 
@@ -228,8 +228,12 @@ the existing vendor blocks.
   Add translations through bin/i18n sources and document the eventual page under
   docs/pages/setup/esc_motors/esc_tools/escape32.md, including the index and help.
 
-No runtime module or menu entry is introduced by this draft. A selectable page
-would currently promise a backend that the inspected firmware does not provide.
+The draft branch now includes a developer-only Suite page, a v1 session codec
+and a companion FC protocol/CLI core. The page lives under Tools → Developer
+so the existing armed-state menu policy remains intact. Capability discovery
+keeps all hardware session actions disabled when no validated adapter exists.
+The physical motor-pad CLI adapter remains unimplemented; see the companion
+branch and the separate implementation/validation records for current evidence.
 
 ## Delivery steps and acceptance criteria
 
@@ -251,5 +255,8 @@ arming rejection, parser terminal status and cleanup on every failure.
 Suite harnesses should cover capability absence, stale callbacks, normalized
 values, outcome-unknown writes, readback mismatch and close during a request.
 
-Hardware validation and functional end-to-end testing are outstanding. This
-commit contains a design document only; no ESC was programmed or flashed.
+Hardware validation and functional end-to-end testing with a real FC/ESC remain
+outstanding. Host tests exercise the C core and Suite Lua with a fake serial
+adapter; they do not establish physical transport support. No ESC was programmed
+or flashed in this environment.
+

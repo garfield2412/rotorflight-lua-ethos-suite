@@ -1,0 +1,41 @@
+name: ESCape32 companion bridge
+
+on:
+  push:
+    branches: [draft/escape32-forward-programming]
+    paths:
+      - 'src/rfsuite/lib/msp_esc_parameters_escape32.lua'
+      - 'src/rfsuite/lib/escape32_session.lua'
+      - 'bin/escape32/**'
+      - '.github/workflows/escape32-bridge.yml'
+  pull_request:
+    paths:
+      - 'src/rfsuite/lib/msp_esc_parameters_escape32.lua'
+      - 'src/rfsuite/lib/escape32_session.lua'
+      - 'bin/escape32/**'
+      - '.github/workflows/escape32-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  real-core-and-lua:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: suite
+      - name: Check out the reviewed companion firmware core
+        uses: actions/checkout@v4
+        with:
+          repository: garfield2412/rotorflight-firmware
+          ref: 9c6273aa0afc61277a9cfeca96bb2b82740a1267
+          path: companion-firmware
+      - name: Install Lua 5.4
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Exercise actual C core against actual Suite controller
+        working-directory: suite
+        run: |
+          lua5.4 bin/escape32/verify_escape32.lua
+          lua5.4 bin/escape32/verify_escape32_page.lua
+          python3 bin/escape32/verify_bridge.py --firmware ../companion-firmware

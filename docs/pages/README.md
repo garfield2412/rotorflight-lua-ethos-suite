@@ -8,7 +8,7 @@ sidebar_label: Pages
 Reference documentation for each configuration and settings page reachable
 within the RFSuite Ethos system tool.
 
-**Status:** 86 reachable pages in navigation hierarchy.
+**Status:** 87 reachable pages in navigation hierarchy (including experimental developer-only pages).
 
 The *Conditions* column names what hides, greys out or locks a page; the sentences
 and structure follow [_template.md](../_template.md).
@@ -94,6 +94,7 @@ and structure follow [_template.md](../_template.md).
 | Info | [tools/diagnostics/info.md](tools/diagnostics/info.md) | Always available offline without an active flight controller connection. Read-only while the model is armed. | written |
 | MSP Speed | [tools/developer/msp_speed.md](tools/developer/msp_speed.md) | Always available offline without an active flight controller connection. Read-only while the model is armed. Hidden until *System* → *Settings* → *Developer* mode is active. | written |
 | MSP Exp. | [tools/developer/msp_exp.md](tools/developer/msp_exp.md) | Always available offline without an active flight controller connection. Read-only while the model is armed. Hidden until *System* → *Settings* → *Developer* mode is active. | written |
+| ESCape32 | [setup/esc_motors/esc_tools/escape32.md](setup/esc_motors/esc_tools/escape32.md) | Hidden outside Developer mode; locked while armed. Explicit validated CLI capabilities required for session entry. No production hardware adapter in the companion draft. | experimental |
 
 ## System → Logs
 
@@ -123,3 +124,4 @@ and structure follow [_template.md](../_template.md).
 | Switches | [settings/audio/switches.md](settings/audio/switches.md) | Always available offline without an active flight controller connection. Read-only while the model is armed. | written |
 | Timer | [settings/audio/timer.md](settings/audio/timer.md) | Always available offline without an active flight controller connection. Read-only while the model is armed. | written |
 | Developer | [settings/developer.md](settings/developer.md) | Always available offline without an active flight controller connection. Read-only while the model is armed. Hidden until *System* → *Settings* → *Developer* mode is active. | written |
+

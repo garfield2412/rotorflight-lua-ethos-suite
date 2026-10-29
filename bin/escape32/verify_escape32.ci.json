@@ -1,0 +1,8 @@
+{
+  "id": "escape32-session",
+  "name": "ESCape32 experimental codec and session lifecycle",
+  "step": "Check capability gating, unknown outcomes and session cleanup",
+  "script": "bin/escape32/verify_escape32.lua",
+  "rationale": "Reject unsupported capabilities and malformed replies; preserve request identity, normalized values, unknown save outcomes and cleanup without blind flash retries.",
+  "command": "lua5.4 bin/escape32/verify_escape32.lua"
+}
