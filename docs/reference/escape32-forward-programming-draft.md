@@ -8,14 +8,15 @@ Firmware flashing is a separate bootloader workflow and is outside this draft.
 
 ESCape32 motor operation with Rotorflight and ESCape32 parameter programming are
 different capabilities. Bidirectional DShot provides RPM feedback; it does not
-provide a general settings read/write channel. The inspected Rotorflight code
-does not contain an ESCape32 parameter backend. Adding a vendor page or assigning
+provide a general settings read/write channel. The inspected upstream/base Rotorflight snapshot
+does not contain an ESCape32 parameter backend; this fork now adds the protocol
+core and MSP bridge, while its physical motor-pad adapter remains pending. Adding a vendor page or assigning
 an existing AM32 signature in this repository cannot enable it.
 
 Recommended implementation: a bounded, asynchronous Rotorflight bridge to the
 ESCape32 CLI on the selected motor signal line, exposed through a negotiated MSP
-session API. The Suite remains the UI and MSP client. This requires a companion
-change in rotorflight-firmware before a functional Suite page can ship.
+session API. The Suite remains the UI and MSP client. The fork already contains that companion
+protocol core; physical FC/ESC programming still requires the validated adapter.
 
 ## Inspected revisions and sources
 
@@ -127,6 +128,25 @@ wiring and arbitration with receiver/telemetry traffic are still required.
 Check target build exclusions as well as revision; CRSF configuration is
 conditionally compiled in io.c.
 
+## Existing Wi-Fi Link reference and remaining FC work
+
+The [Wi-Fi Link reference analysis](escape32/wifi-link-reference.md) records the
+official ESP32 implementation at immutable commit
+40af21ccfafd9cb8d1c9b951d57b54f3e36bd21f. It already sends and receives the same
+38400/8N1 text CLI: identity/settings reads, parameter writes and a separate save.
+Its serial receive code recognizes LF-terminated OK/ERROR replies. This is
+source evidence for a real ESC-facing implementation, not a claim that our
+RF007 adapter has been implemented or bench-tested.
+
+The ESP32's browser/WebSocket layer is replaced by Suite/MSP in our design.
+Port the serial behavior into a nonblocking FC adapter; do not copy ESP32 waits,
+browser buffers or the separate bootloader protocol. Check actual RF007 signal
+routing, DShot handover and recovery. The available CLI exposes more settings
+than the nine-key Suite whitelist; the limited UI is a draft scope decision.
+
+See the [RF007 Wi-Fi port task](https://github.com/garfield2412/rotorflight-firmware/blob/draft/escape32-forward-programming/.agents/tasks/escape32-wifi-port.md)
+for the next concrete firmware implementation and acceptance steps.
+
 ## Existing Suite / Rotorflight boundary
 
 The Suite uses MSP 217 for parameter reads, 218 for writes, and 244 to select a
@@ -145,12 +165,14 @@ The existing selector's release convention and cleanup patterns are useful
 references, but its automatic bootloader entry must not be called for a CLI
 session. Keep four-way and CLI ownership mutually exclusive.
 
-## Proposed companion Rotorflight change
+## Implemented companion contract and pending hardware adapter
 
-Names below are **proposals**, with no MSP command numbers allocated.
-Agree upstream IDs and an API version before adding a runtime codec.
+The fork implements these operations in experimental MSP2 0x5FE0, contract v1.
+This is a fork-local allocation, not an upstream ESCape32/MSP standard. Exact
+layouts and golden vectors are in bin/escape32/contract-v1.json and the matching
+firmware fixture; capabilities remain core-only until the adapter is validated.
 
-| Proposed operation | Request data | Reply / behavior |
+| Contract operation | Request data | Reply / behavior |
 | --- | --- | --- |
 | CAPS | Contract version | Supported backend, target capabilities and bounded transfer limits |
 | OPEN | Target motor index, backend | Session token; asynchronous entry status |
@@ -173,7 +195,8 @@ Implementation requirements:
    MSP handlers start/poll work; they must not wait seconds for CLI entry or
    serial replies. Use bounded preallocated RX/TX storage and response lengths.
 4. Verify identity using info before permitting reads or writes. Unknown ESCs,
-   unknown revisions and unsupported parameter schemas remain read-only.
+   unknown revisions and unsupported parameter schemas remain identity-only;
+   parameter GET/SET/SAVE stay blocked.
 5. Permit only known numeric setting keys initially. Parse complete replies,
    including the final status; reject truncation, malformed values and excess
    length. Handle numeric overflow before conversion.
@@ -192,7 +215,7 @@ Implementation requirements:
    Return distinct unsupported, busy, power-cycle-needed, timeout, protocol,
    normalized-value and verification-failed outcomes.
 
-Suggested FC states:
+Conceptual adapter lifecycle (exact wire states remain in the v1 fixture):
 
 ```text
 IDLE -> ACQUIRE -> WAIT_ESC_POWER -> IDENTIFY -> READY
@@ -201,17 +224,19 @@ any active state -> ERROR or CLOSING -> RELEASE
 RELEASE -> IDLE or RESTART_REQUIRED
 ```
 
-The precise session timeout, chunk limits and field encoding remain to be agreed
-after measuring radio transport limits and FC serial timing. If block-oriented
+The implemented v1 contract uses 14-byte maximum requests, fixed 32-byte replies,
+a 10000 ms owner lease and 2000 ms CLI transaction deadlines. A real transport
+must be measured against these limits; the ESP32 reference's blocking receive
+wait is not the FC deadline policy. If block-oriented
 MSP 217/218 reuse is preferred upstream, specify a new negotiated signature,
 version, bounded schema and completion status first; do not silently overload
 the existing vendor blocks.
 
-## Planned Suite changes after the FC contract exists
+## Suite integration and maintained requirements
 
-- Add `src/rfsuite/lib/msp_esc_parameters_escape32.lua` for the agreed API.
+- Maintain `src/rfsuite/lib/msp_esc_parameters_escape32.lua` for the agreed API.
   Follow the existing bus/queue conventions and module lifecycle rules.
-- Add `src/rfsuite/app/pages/esc_forward_escape32.lua` with target selection,
+- Maintain `src/rfsuite/app/pages/esc_forward_escape32.lua` with target selection,
   power-up guidance, identity, settings, pending changes, save and verified
   results. Use an explicit CLI session selector rather than the existing
   automatic four-way selector.

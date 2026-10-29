@@ -6,9 +6,9 @@ Implementiere die FC-Seite des
 [ESCape32-Drafts](../escape32-forward-programming-draft.md).
 Gegenstück: [Suite-Auftrag](suite-agent.md).
 
-Zielrepository ist rotorflight-firmware, nicht das Suite-Repository, in dem
-dieser Auftrag abgelegt ist. Ermittle den passenden beschreibbaren Fork und
-arbeite dort auf einem neuen Implementierungsbranch. Lies dessen AGENTS.md und
+Zielrepository ist garfield2412/rotorflight-firmware. Arbeite im bestehenden
+Branch draft/escape32-forward-programming oder einem daraus abgeleiteten
+Arbeitsbranch; diese Auftragskopie liegt im Suite-Repository. Lies dessen AGENTS.md und
 pfadspezifische Regeln vor Änderungen. Der Entwurf ist kein Auftrag, direkt
 auf upstream master zu schreiben.
 
@@ -16,6 +16,21 @@ Liefere eine begrenzte, asynchrone Bridge zwischen MSP und ESCape32-CLI auf eine
 ausgewählten Motor-Signalleitung. Der erste Meilenstein ist ein bidirektionaler
 Transportnachweis, anschließend Lesen, erst danach Schreiben und Speichern.
 Firmware-Flashing und Änderungen an ESCape32 selbst gehören nicht zum Umfang.
+
+## Aktueller Auftrag: vorhandene Referenz auf RF007 übertragen
+
+Der CLI-/MSP-Core ist implementiert. Der nächste offene Schritt ist der echte
+serielle RF007-Adapter. Maßgeblich ist der neue
+[Wi-Fi-Portierungsauftrag im Firmware-Fork](https://github.com/garfield2412/rotorflight-firmware/blob/draft/escape32-forward-programming/.agents/tasks/escape32-wifi-port.md),
+zusammen mit dem [RF007-Profil](https://github.com/garfield2412/rotorflight-firmware/blob/draft/escape32-forward-programming/.agents/tasks/escape32-rf007.md)
+und der [Wi-Fi-Link-Referenz](wifi-link-reference.md).
+
+Der offizielle ESP32-Link liest und schreibt bereits über die ESCape32-CLI;
+portiere dessen serielles Verhalten, nicht den Wi-Fi-/HTTP-/WebSocket-Stack oder
+die blockierenden FreeRTOS-Aufrufe. Nutze die bestehenden Adaptercallbacks und
+prüfe PA09-Rückkanal, DShot-/Timer-/DMA-Ownership, Stromsequenz und Recovery.
+Aktuelle Vertragsversion1/0x5FE0, neun Keys und explizite ESC17.2/17.3-Allowlist
+bleiben Grundlage; keine Capability durch bloßes Erkennen der Revision setzen.
 
 ## 1. Machbarkeit und aktuelle Quellen prüfen
 
@@ -39,8 +54,9 @@ Schreibfähigkeit als unterstützt melden.
 
 ## 2. Gemeinsamen MSP-Vertrag zuerst liefern
 
-Erstelle vor der Suite-Geräteanbindung einen versionierten Vertragsentwurf,
-übergebe ihn dem Suite-Agenten und prüfe ihn gegen dessen Queue-/Funktransport.
+Nutze den bestehenden versionierten Contract v1 und die gemeinsamen Fixtures.
+Stimme erforderliche Erweiterungen vor der Suite-Geräteanbindung ab und prüfe
+sie gegen deren Queue-/Funktransport.
 Er muss mindestens spezifizieren:
 - CAPS ohne Motorpin-Änderung; unterstützte Ziele/Backends/Schreibfähigkeiten;
 - OPEN, STATUS, GET, SET, SAVE, CLOSE mit exakten Request-/Reply-Layouts;
@@ -80,7 +96,8 @@ VERIFY, ERROR, CLOSING, RELEASE und gegebenenfalls RESTART_REQUIRED.
    WAIT_ESC_POWER an die Suite melden; keine automatische Stromschaltung
    unterstellen. Elektrische Pegel und Halbduplex-Turnaround am Bench prüfen.
 4. Mit info die ESCape32-Identität und Revision prüfen. Unbekannte Identitäten
-   nicht beschreiben; unbekannte Revisionen höchstens begrenzt lesend behandeln.
+   nicht beschreiben; unbekannte Revisionen nur identifizieren und
+   Parameter-GET/SET/SAVE ablehnen.
 5. MSP-Handler starten oder pollen Arbeit. Kein Busy-Wait für Sekunden,
    kein blockierendes Lesen im MSP-Callback. Fristen im Scheduler abarbeiten.
    Begrenzte statische Puffer und explizite Längen verwenden.
@@ -156,3 +173,10 @@ Compatibility und Testing; verlinke Suite-Companion, Vertragsversion und
 Testvektoren. Liste reale Builds/Tests und offene Bench-Nachweise getrennt.
 Melde erforderliche Benutzer-/Internals-Dokumentation im dafür vorgesehenen
 Dokumentationsrepository. Keine Hardwarefreigabe allein aus Parser-Unit-Tests.
+
+## Verbindliche Übergabe des Hardwareteils
+
+Liefere einen tatsächlichen Treiberdiff, die begründete Transportwahl, Mess-/
+Testschritte und den verwendeten Companion-Stand. Eigene Hosttests und ARM-Builds
+von realem RF007/ESC-RX und Recovery trennen. Der Wi-Fi-Link ist die belegte
+ESC-Protokollreferenz; seine Existenz allein validiert keinen RF007-Steckerpfad.

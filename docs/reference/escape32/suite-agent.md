@@ -21,9 +21,23 @@ verwenden. Texte direkt in der experimentellen Seite halten; keine Sprachdateien
 für ESCape32 ändern. Die spätere Lokalisierung gehört erst in die produktive
 Integration. Diese Vorgabe gilt vor den allgemeinen i18n-Empfehlungen.
 
+## Geprüfte Referenz und aktueller Folgeauftrag
+
+Lies die [Wi-Fi-Link-Referenz](wifi-link-reference.md). Der offizielle ESP32-Link
+implementiert bereits Lesen, Ändern und Speichern über die 38400/8N1-CLI.
+Unsere Suite benötigt dafür keinen Wi-Fi- oder WebSocket-Client. Sie bleibt
+MSPv2-Client des FC; der Firmware-Agent portiert den seriellen Teil auf RF007.
+
+Codec, Sessionsteuerung, Seite und Contract v1 existieren bereits. Als Nächstes
+den realen FC-Adapter integrieren und seine gemeldeten Zustände wahrheitsgemäß
+anzeigen. Ein Protokolltest oder eine erkannte ESC17.3-Identität darf fehlende
+Hardware-Capabilities nicht ersetzen. Schema 1 bleibt exakt 17.2/17.3; andere
+Revisionen sind identity-only. Das aktuelle UI umfasst neun von 47 Einstellungen;
+weitere Keys gehören in einen eigenen Schema-/UI-/Testschritt.
+
 ## 1. Gemeinsamen Vertrag übernehmen
 
-Der Firmware-Agent liefert zuerst einen versionierten MSP-Vertragsentwurf mit
+Übernimm den vorhandenen Contract v1 auf fork-lokalem MSP2 0x5FE0 mit
 Byte-Layouts und Testvektoren. Prüfe ihn gegen den tatsächlichen MSP-Transport der
 Suite und melde Größen-, Fragmentierungs- oder Queue-Probleme zurück.
 
@@ -35,9 +49,9 @@ CAPS muss ohne Änderung an Motorpins oder Start einer Programmiersession
 abfragbar sein.
 
 Implementiere keine geratenen produktiven Command-IDs oder ESC-Signaturen.
-Bis ein versionierter Vertrag vorliegt, arbeite an Transport-Mocks,
-Sessionmodell und Tests ohne aktive Geräteanbindung. Markiere einen noch nicht
-abgestimmten Transport als experimentell und halte ihn standardmäßig aus.
+Der vorhandene v1-Vertrag ist die Grundlage. Vertragsänderungen erst gemeinsam
+mit Firmware, Fixtures und Companion-Pin abstimmen. Halte den experimentellen
+Hardwarepfad bis zum konkreten Nachweis gesperrt.
 Ein unbekannter oder ablehnender FC darf keine Schreibnachrichten auslösen.
 
 Übernimm dieselben versionierten Testvektoren wie die Firmware-Seite. Dokumentiere
@@ -90,6 +104,21 @@ Ermittle die aktuelle Menüquelle; ältere Generatorhinweise können veraltet se
 BEC, Eingangs-/Telemetriemodus, Brushed-Modus, Reset, freie CLI-Befehle,
 Motoransteuerung und Firmware-Flash bleiben außerhalb dieser ersten Seite.
 Führe keine automatische Änderung dieser Einstellungen zur Verbindungsherstellung aus.
+
+## Abnahme mit dem realen Firmwareadapter
+
+- Bestehenden bytegenauen Vertrag beibehalten; nötige Änderungen zuerst mit
+  Firmware und Koordinator abstimmen, Fixtures und Companion-Pin gemeinsam ändern.
+- WAIT_POWER/Busy, echte Identität, Readback/Normalisierung, Save-bestätigt und
+  Restart erforderlich anzeigen. Nach lost OPEN/CLOSE die bestehende
+  idempotente Recovery verwenden; kein ungeprüftes zweites SAVE.
+- Der Wi-Fi-Link zeigt bei Öffnen die vollständige Einstellungenliste. Die
+  Suite lädt weiter einzelne begrenzte Keys; weder show-Text noch WebSocket-
+  Requestpräfixe als MSP-Parameterblock oder ESC-Echo behandeln.
+- Mit realem RF007 zuerst info/GET, dann die neun freigegebenen Werte prüfen.
+  Verfügbare Wi-Fi-Messwerte nur aus einer getrennten Referenzsession vergleichen.
+- Erweiterung von Feldumfang, BEC, Modi oder Bootloader folgt nicht automatisch
+  aus der Wi-Fi-Referenz. Keine neuen Sprachdateien für diesen Draft anlegen.
 
 ## 4. Schließen, Linkverlust und Ressourcen
 

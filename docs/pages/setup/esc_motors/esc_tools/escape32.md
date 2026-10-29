@@ -1,12 +1,13 @@
 ---
 title: ESCape32
-Draft language: English only. ESCape32 does not change locale files; localization is deferred.
-
 sidebar_label: ESCape32
 sidebar_position: 5
 ---
 
 # ESCape32
+
+Draft language: English only. ESCape32 does not change locale files;
+localization is deferred.
 
 Experimental ESCape32 settings page using a dedicated Rotorflight CLI-session
 bridge. It does not use the AM32/four-way bootloader and does not flash firmware.
@@ -34,6 +35,20 @@ The nine parameter definitions and their validation are identical in the pinned
 and [17.3 source](https://github.com/neoxic/ESCape32/tree/1d718c143380c3eb7e6581478990e1496632e5b8).
 Recognizing 17.3 does not establish a working CLI receive path on a Vantac RF007
 motor pad or grant any hardware capability.
+
+## Protocol and existing reference
+
+The page sends fork-local MSPv2 session requests to Rotorflight. The FC is
+intended to use the ESCape32 serial CLI over the selected motor signal line,
+38400 baud / 8N1 with LF endings. DShot must be handed over for programming
+and subsequently restored or explicitly require a restart.
+
+The official ESP32 Wi-Fi Link already reads and writes settings using that CLI.
+Its implementation is the transport reference; this page does not connect to
+Wi-Fi. See the [source-backed Wi-Fi reference](../../../../reference/escape32/wifi-link-reference.md)
+for pinned code locations and the remaining RF007 porting work.
+The CLI supports more settings than the nine keys exposed by this draft;
+this limit is the Suite's current scope, not a restriction of ESCape32.
 
 ## Settings
 

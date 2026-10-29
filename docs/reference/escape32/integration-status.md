@@ -138,7 +138,7 @@ konkreten Board zu prüfen; Target-Defaults ersetzen keinen Hardware-Nachweis.
 Der [RF007-Hardwareauftrag](https://github.com/garfield2412/rotorflight-firmware/blob/draft/escape32-forward-programming/.agents/tasks/escape32-rf007.md)
 enthält Quellen, Ressourcen, RX-/Timer-Grenzen und die Bench-Abnahme.
 
-Schema1 ist jetzt in beiden Implementierungen ausdrücklich für 17.2 und 17.3
+Schema 1 ist jetzt in beiden Implementierungen ausdrücklich für 17.2 und 17.3
 freigegeben. Unbekannte 17.4/16.3 bleiben für GET, SET und SAVE gesperrt.
 Neue lokale Tests: 163 Codec-/Session-Checks, 46 Seitenchecks, portabler C-Kern
 mit ASan/UBSan sowie echter C/Lua-Test mit Hauptidentität 17.3 erfolgreich.
@@ -171,3 +171,25 @@ ESCape32-Seite enthält ihre neuen Texte direkt auf Englisch; Lokalisierung wird
 bis zur produktiven Integration zurückgestellt. Bestehende Übersetzungen anderer
 Seiten bleiben erhalten. Der Seiten-Harness ist auf englische Texte angepasst;
 46 Seitenchecks, i18n-Tagprüfung und der vorhandene englische Fit-Check bestehen.
+
+## Wi-Fi-Link als geprüfte Protokollreferenz
+
+Die [Referenzauswertung](wifi-link-reference.md) dokumentiert den offiziellen
+ESP32-Link am Commit 40af21ccfafd9cb8d1c9b951d57b54f3e36bd21f. Dessen Quellcode
+enthält UART-RX/TX mit 38400/8N1 sowie CLI-Lesen, Setzen und Speichern. Der
+ESC-seitige Lese-/Schreibpfad ist damit als vorhandene Implementierung belegt.
+Dies ist eine Quellprüfung, kein in dieser Umgebung durchgeführter Wi-Fi-Benchtest.
+
+| Aussage | Nachweis / Stand |
+| --- | --- |
+| ESCape32-CLI kann Einstellungen lesen und schreiben | Offizielle CLI-Doku, ESC17.3-Quellcode und Wi-Fi-Link-UART-/Frontendimplementierung |
+| Unser Sessionkern verarbeitet das Protokoll und arbeitet mit der Suite zusammen | Bestehende Host-/C-Lua-Tests und gepinnte CI-Läufe oben |
+| Unser RF007 führt dieselben Transaktionen physisch über PA09 aus | Noch offen: serieller Adapter, elektrische RX-Richtung, Stromsequenz und Recovery |
+
+Der nächste Firmwareauftrag ist die
+[Portierung des seriellen Referenzverhaltens](https://github.com/garfield2412/rotorflight-firmware/blob/draft/escape32-forward-programming/.agents/tasks/escape32-wifi-port.md).
+Der FC benötigt keinen Wi-Fi-/WebSocket-Stack. ESP32-Blockieraufrufe, Browser-
+Requestpräfixe und Bootloaderkommandos werden nicht übernommen. Der bestehende
+MSP-Vertrag, die neun-Key-Whitelist, die 17.2/17.3-Allowlist und Englisch als
+Draftsprache bleiben die Grundlage. Dieser Dokumentationsschritt aktiviert
+keine Ziel-Capability und ändert keine Laufzeitimplementierung.
