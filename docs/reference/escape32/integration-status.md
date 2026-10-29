@@ -81,7 +81,7 @@ ist ebenfalls erfolgreich, einschließlich Übersetzungstags in allen Locales.
 
 Lokal bestanden außerdem alle tool.lua-referenzierenden bestehenden Harnesses,
 167 Instruction-Budget-Checks sowie der ESC-Signatur-Selbsttest mit 88 positiven
-Checks und 48 korrekt abgewiesenen sabotierten Gates. Die 24 geänderten Locale-
+Checks und 48 korrekt abgewiesenen sabotierten Gates. Die 24 damals geänderten Locale-
 Dateien wurden unabhängig semantisch gegen den Ausgangscommit verglichen:
 ausschließlich das neue ESCape32-Objekt wurde ergänzt.
 
@@ -162,3 +162,12 @@ ist ebenfalls erfolgreich: 163 Codec-/Session-Checks, 46 Seitenchecks und echter
 C/Lua-Integrationstest mit 17.3 und verlorenen SAVE-/CLOSE-Antworten.
 Die früheren CI-Links und Größenmessungen oben beziehen sich auf den jeweils
 explizit genannten ursprünglichen Codecommit.
+
+## Draft-Sprache: nur Englisch
+
+Auf ausdrücklichen Nutzerwunsch sind alle 24 Sprachdateien (Quellen und generierte
+Runtime-Dateien) wieder auf den Ausgangsstand zurückgesetzt. Die experimentelle
+ESCape32-Seite enthält ihre neuen Texte direkt auf Englisch; Lokalisierung wird
+bis zur produktiven Integration zurückgestellt. Bestehende Übersetzungen anderer
+Seiten bleiben erhalten. Der Seiten-Harness ist auf englische Texte angepasst;
+46 Seitenchecks, i18n-Tagprüfung und der vorhandene englische Fit-Check bestehen.

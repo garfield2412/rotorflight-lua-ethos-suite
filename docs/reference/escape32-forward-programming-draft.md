@@ -233,7 +233,7 @@ the existing vendor blocks.
   remove handlers and close progress dialogs. Ignore late callbacks.
 - Add menu entries in the actual current menu source; verify the live MENUS
   structure because AGENTS.md explicitly notes stale generator references.
-  Add translations through bin/i18n sources and document the eventual page under
+  Keep this draft's UI strings in English without locale-file changes. Document the page under
   docs/pages/setup/esc_motors/esc_tools/escape32.md, including the index and help.
 
 The draft branch now includes a developer-only Suite page, a v1 session codec
@@ -252,7 +252,7 @@ branch and the separate implementation/validation records for current evidence.
    and cleanup over USB and the intended radio/MSP transport.
 3. **Write prototype:** change one setting, verify the applied value, save once,
    power-cycle and verify persistence. Confirm the other ESC is untouched.
-4. **Suite page:** add codecs, simulator fixtures, translations and documentation;
+4. **Suite page:** add codecs, simulator fixtures, English UI text and documentation;
    then exercise the page on the smallest supported display.
 5. **Hardware acceptance:** verify repeated entry/exit, two ESCs, link loss during
    entry/set/save, reboot, unknown revision, unsupported target, line stuck high,

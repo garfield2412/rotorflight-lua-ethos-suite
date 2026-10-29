@@ -9,10 +9,17 @@ Implementierungsbranch, ausgehend vom aktuellen Draft-Branch. Lies zuerst
 AGENTS.md und die für geänderte Pfade geltenden Regeln. Prüfe den aktuellen Code;
 die im Draft genannten Revisionen sind Recherche-Snapshots.
 
-Dieser Auftrag umfasst Lua-Codec, Sessionsteuerung, Seite, Menü, Übersetzungen,
+Dieser Auftrag umfasst Lua-Codec, Sessionsteuerung, Seite, Menü,
 Simulator-Fixtures, Tests und Dokumentation. Änderungen an Rotorflight-C oder
 ESCape32-Firmware gehören zum Firmware-Auftrag beziehungsweise in einen
 separaten Auftrag. Firmware-Flashing gehört nicht zum Umfang.
+
+## Sprache dieses Drafts
+
+Ausdrückliche Nutzervorgabe: Für diesen Draft ausschließlich englische UI-Texte
+verwenden. Texte direkt in der experimentellen Seite halten; keine Sprachdateien
+für ESCape32 ändern. Die spätere Lokalisierung gehört erst in die produktive
+Integration. Diese Vorgabe gilt vor den allgemeinen i18n-Empfehlungen.
 
 ## 1. Gemeinsamen Vertrag übernehmen
 
@@ -77,7 +84,7 @@ Ermittle die aktuelle Menüquelle; ältere Generatorhinweise können veraltet se
 6. Bei SET-/SAVE-Timeout ist das Ergebnis unbekannt. Kein automatisches erneutes
    Flash-Save; Status und Readback gemäß Vertrag abfragen. Ungeklärte Vorgänge
    verhindern weitere widersprüchliche Änderungen.
-7. Ergänze Menü, Übersetzungsquellen, Hilfe und Seitendokumentation erst mit
+7. Ergänze Menü, englische Hilfe und Seitendokumentation erst mit
    wahrheitsgemäßer Capability-/Experiment-Gating-Logik.
 
 BEC, Eingangs-/Telemetriemodus, Brushed-Modus, Reset, freie CLI-Befehle,

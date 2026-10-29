@@ -1,5 +1,7 @@
 ---
 title: ESCape32
+Draft language: English only. ESCape32 does not change locale files; localization is deferred.
+
 sidebar_label: ESCape32
 sidebar_position: 5
 ---

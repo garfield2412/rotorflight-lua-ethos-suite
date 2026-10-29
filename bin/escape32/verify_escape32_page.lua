@@ -24,7 +24,19 @@ local modules={['lib/bus.lua']=bus,['app/header.lua']={build=function(_,o)back=o
  ['app/close_key.lua']={shouldHandleClose=function()return true end}}
 package.loaded['rfsuite.lib.require']=function(path)return modules[path] or assert(loadfile(prefix..path))()end
 local page=assert(loadfile(prefix..'app/pages/esc_forward_escape32.lua'))()
-local function key(k)return '@i18n(app.modules.esc_tools.escape32.'..k..')@'end
+local LABELS = {
+ open="Open session",
+ probe="Check support",
+ target="ESC target",
+ raw="Raw value",
+ read="Read value",
+ apply="Apply to ESC RAM",
+ save="Save ESC flash",
+ status="Status",
+ save_confirmed="Save OK; unverified",
+ identity="ESC identity",
+}
+local function key(k)return assert(LABELS[k],k)end
 local function click(k)local f=assert(fields[key(k)],k);check(f.enabled,'enabled '..k);f.press();tick()end
 local function response(op,changes)
  local m=table.remove(pending,1);check(m and m.payload[2]==op,'expected op '..op)

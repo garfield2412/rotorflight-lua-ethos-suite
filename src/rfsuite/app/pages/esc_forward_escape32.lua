@@ -1,3 +1,4 @@
+-- Draft UI is English-only by user request; localize when the integration is ready.
 -- Experimental CLI sessions; never enters the four-way bootloader selector.
 local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
 local bus = requireModule("lib/bus.lua")
@@ -8,40 +9,40 @@ local closeKey = requireModule("app/close_key.lua")
 
 local T = {
   name = "ESCape32",
-  status = "@i18n(app.modules.esc_tools.escape32.status)@",
-  experimental = "@i18n(app.modules.esc_tools.escape32.experimental)@",
-  probe = "@i18n(app.modules.esc_tools.escape32.probe)@",
-  target = "@i18n(app.modules.esc_tools.escape32.target)@",
-  open = "@i18n(app.modules.esc_tools.escape32.open)@",
-  parameter = "@i18n(app.modules.esc_tools.escape32.parameter)@",
-  raw = "@i18n(app.modules.esc_tools.escape32.raw)@",
-  shown = "@i18n(app.modules.esc_tools.escape32.shown)@",
-  read = "@i18n(app.modules.esc_tools.escape32.read)@",
-  apply = "@i18n(app.modules.esc_tools.escape32.apply)@",
-  save = "@i18n(app.modules.esc_tools.escape32.save)@",
-  recover = "@i18n(app.modules.esc_tools.escape32.recover)@",
-  close = "@i18n(app.modules.esc_tools.escape32.close)@",
-  identity = "@i18n(app.modules.esc_tools.escape32.identity)@",
-  help = "@i18n(app.modules.esc_tools.escape32.help)@",
-  helpBody = "@i18n(app.modules.esc_tools.escape32.help_body)@",
-  idle = "@i18n(app.modules.esc_tools.escape32.idle)@",
-  probing = "@i18n(app.modules.esc_tools.escape32.probing)@",
-  select_target = "@i18n(app.modules.esc_tools.escape32.select_target)@",
-  unsupported = "@i18n(app.modules.esc_tools.escape32.unsupported)@",
-  opening = "@i18n(app.modules.esc_tools.escape32.opening)@",
-  wait_power = "@i18n(app.modules.esc_tools.escape32.wait_power)@",
-  busy = "@i18n(app.modules.esc_tools.escape32.busy)@",
-  ready = "@i18n(app.modules.esc_tools.escape32.ready)@",
-  save_confirmed = "@i18n(app.modules.esc_tools.escape32.save_confirmed)@",
-  outcome_unknown = "@i18n(app.modules.esc_tools.escape32.outcome_unknown)@",
-  open_unknown = "@i18n(app.modules.esc_tools.escape32.open_unknown)@",
-  close_unknown = "@i18n(app.modules.esc_tools.escape32.close_unknown)@",
-  restart_required = "@i18n(app.modules.esc_tools.escape32.restart_required)@",
-  disconnected = "@i18n(app.modules.esc_tools.escape32.disconnected)@",
-  closing = "@i18n(app.modules.esc_tools.escape32.closing)@",
-  closed = "@i18n(app.modules.esc_tools.escape32.closed)@",
-  error = "@i18n(app.modules.esc_tools.escape32.error)@",
-  normalized = "@i18n(app.modules.esc_tools.escape32.normalized)@",
+  status = "Status",
+  experimental = "Experimental; hardware adapter required",
+  probe = "Check support",
+  target = "ESC target",
+  open = "Open session",
+  parameter = "Parameter",
+  raw = "Raw value",
+  shown = "Scaled value",
+  read = "Read value",
+  apply = "Apply to ESC RAM",
+  save = "Save ESC flash",
+  recover = "Check result",
+  close = "Close session",
+  identity = "ESC identity",
+  help = "Help",
+  helpBody = "Experimental CLI programming through Rotorflight. Check support first. Keep the FC powered, then power up the selected ESC when prompted. Read a parameter before editing its raw integer. Apply changes ESC RAM; Save writes ESC flash. Save OK is not persistence proof: verify after a real ESC power cycle. A missing reply means outcome unknown; Check result never blindly repeats Save. On exit or link loss the FC watchdog releases the session; ESC restart may still be required. Timing is raw x 0.9375 degrees, duty_rate raw x 0.1 percent/ms; freq values kHz, duty values percent, duty_ramp kERPM, temperature C and current A. Only supported schema1 is editable. If transport recovery fails, the current FC core keeps its arming inhibit until the FC restarts. Restart both ESC and FC; restarting only the ESC does not clear the FC latch.",
+  idle = "Check support first",
+  probing = "Checking support",
+  select_target = "Select ESC target",
+  unsupported = "Backend unavailable",
+  opening = "Opening session",
+  wait_power = "Power ESC on now",
+  busy = "ESC busy",
+  ready = "Ready",
+  save_confirmed = "Save OK; unverified",
+  outcome_unknown = "Outcome unknown",
+  open_unknown = "Open ACK missing",
+  close_unknown = "Close ACK missing",
+  restart_required = "ESC/FC restart due",
+  disconnected = "Link / arming lock",
+  closing = "Closing session",
+  closed = "Session closed",
+  error = "Session error",
+  normalized = "Value normalized",
 }
 local CHOICES = {}
 local UNITS = {"0/1", "deg", "kHz", "kHz", "%", "kERPM", "%/ms", "C", "A"}
@@ -180,7 +181,7 @@ local function open(opts)
       if form.openDialog then
         closeDialog()
         dialog = form.openDialog({title = T.name, message = T.helpBody,
-          buttons = {{label = "@i18n(app.btn_ok)@", action = function() dialog = nil; return true end}},
+          buttons = {{label = "OK", action = function() dialog = nil; return true end}},
           options = TEXT_LEFT})
       end
     end
