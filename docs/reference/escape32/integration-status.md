@@ -69,6 +69,22 @@ ESC-Signatur-, Schutz- und Lifecycle-Regressionsprüfungen. Der dabei gefundene
 Konflikt zwischen dynamischer Sichtbarkeit und Arming-Sperren wurde durch einen
 statischen Eintrag im bestehenden Entwicklermenü vermieden.
 
+## Veröffentlichte Suite und CI
+
+Suite-Codecommit:
+[8931e492c5cb86bacb9417c8a1d19fcf9c332b2c](https://github.com/garfield2412/rotorflight-lua-ethos-suite/commit/8931e492c5cb86bacb9417c8a1d19fcf9c332b2c).
+[Companion-Bridge-CI 40830302494](https://github.com/garfield2412/rotorflight-lua-ethos-suite/actions/runs/40830302494)
+ist erfolgreich: 136 Codec-/Session-Checks, 25 Seitenchecks und der echte
+C/Lua-Cross-Repository-Test gegen den gepinnten Firmware-Codecommit.
+[Theme-/Locale-CI 40830302399](https://github.com/garfield2412/rotorflight-lua-ethos-suite/actions/runs/40830302399)
+ist ebenfalls erfolgreich, einschließlich Übersetzungstags in allen Locales.
+
+Lokal bestanden außerdem alle tool.lua-referenzierenden bestehenden Harnesses,
+167 Instruction-Budget-Checks sowie der ESC-Signatur-Selbsttest mit 88 positiven
+Checks und 48 korrekt abgewiesenen sabotierten Gates. Die 24 geänderten Locale-
+Dateien wurden unabhängig semantisch gegen den Ausgangscommit verglichen:
+ausschließlich das neue ESCape32-Objekt wurde ergänzt.
+
 ## Tests wiederholen
 
 Voraussetzungen: Python 3, Host-GCC und Lua 5.4. Beide Draft-Branches lokal auschecken.
