@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: garfield2412/rotorflight-firmware
-          ref: 9c6273aa0afc61277a9cfeca96bb2b82740a1267
+          ref: 118af7e9bb516e4b4eda6c24f2f49cf60cd88480
           path: companion-firmware
       - name: Install Lua 5.4
         run: sudo apt-get update && sudo apt-get install -y lua5.4

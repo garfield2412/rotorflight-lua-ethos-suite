@@ -826,7 +826,8 @@ local function runChecks()
           local gated = codec.COMMAND == 0x5FE0 and codec.VERSION == 1
             and type(codec.canRead) == "function" and type(codec.canWrite) == "function"
             and not codec.canRead({result = 0, capabilities = 1, targets = 0})
-            and not codec.canWrite({capabilities = 15, readonly = false, schema = 0, revision = 17, patch = 2})
+            and not codec.canWrite({capabilities = 15, readonly = false, schema = 0, revision = 17, patch = 3})
+            and not codec.canWrite({capabilities = 15, readonly = false, schema = 1, revision = 17, patch = 4})
           if not gated then ungated[#ungated + 1] = page .. " (no negotiated CLI gate)" end
         elseif tonumber(codec.EXPECTED_SIGNATURE) == nil then
           ungated[#ungated + 1] = page .. " (" .. codecName .. ")"

@@ -58,7 +58,7 @@ def main():
             text = C.string_at(pointer, length).decode("ascii")
             writes.append(text)
             if text == "info\n":
-                response = "ESCape32 rev17.2 [TEST]\nTemp: 24C\nVolt: 12.00V\nCurr: 0.00A\nCsum: 0mAh\nERPM: 0\nOK\n"
+                response = "ESCape32 rev17.3 [TEST]\nTemp: 24C\nVolt: 12.00V\nCurr: 0.00A\nCsum: 0mAh\nERPM: 0\nOK\n"
             elif text.startswith("get "):
                 key = text.split()[1]
                 response = (f"{key}: 999999999999999999999\nOK\n" if corrupt
@@ -123,7 +123,7 @@ def main():
         assert handle(opened, owner=8)[2] == 2, "Other owner stole session"
         drain()
         reply = handle(header(2, token, 1), record=True)
-        assert reply[2:4] == [0, 3] and reply[13:16] == [17, 2, 1]
+        assert reply[2:4] == [0, 3] and reply[13:16] == [17, 3, 1]
         reply = handle(header(3, token, 2) + [1], record=True)
         drain()
         reply = handle(header(2, token, 2), record=True)
@@ -178,7 +178,7 @@ end
 local function eq(a,b) assert(#a==#b); for i=1,#a do assert(a[i]==b[i],"wire mismatch "..i) end end
 eq(assert(codec.encode(codec.OP.OPEN,{requestId=1,target=0,nonce=0x12345678})), data.wireOpen)
 local ready = assert(codec.decode(data.ready,codec.OP.STATUS))
-assert(ready.schema==1 and ready.revision==17 and ready.patch==2)
+assert(ready.schema==1 and ready.revision==17 and ready.patch==3)
 print("C -> Lua contract snapshots: "..#data.records.." passed")
 ''')
         subprocess.run([args.lua, str(check), str(suite), str(data)], check=True)

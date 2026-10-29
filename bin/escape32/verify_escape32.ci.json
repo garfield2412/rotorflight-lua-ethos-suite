@@ -3,6 +3,6 @@
   "name": "ESCape32 experimental codec and session lifecycle",
   "step": "Check capability gating, unknown outcomes and session cleanup",
   "script": "bin/escape32/verify_escape32.lua",
-  "rationale": "Reject unsupported capabilities and malformed replies; preserve request identity, normalized values, unknown save outcomes and cleanup without blind flash retries.",
+  "rationale": "Reject unsupported capabilities and malformed replies; preserve request identity, normalized values, unknown save outcomes and cleanup without blind flash retries. Exercise the verified 17.3 schema, retain exact 17.2 compatibility, and block unknown 17.4/16.3 identities even when they claim schema1.",
   "command": "lua5.4 bin/escape32/verify_escape32.lua"
 }

@@ -11,7 +11,7 @@ local function check(ok, text) checks = checks + 1; assert(ok, text) end
 local function equal(a, b) if #a ~= #b then return false end for i=1,#a do if a[i]~=b[i] then return false end end return true end
 local function put(b, offset, n, count) for i=offset,offset+count-1 do b[i]=n%256; n=math.floor(n/256) end end
 local function reply(op, changes)
-  local b = {1,op,0,3,1,0,0,0,1,0,0,16,255,17,2,1,0,0,0,0,1,14,32,0,16,39,15,0,1,0,0,0}
+  local b = {1,op,0,3,1,0,0,0,1,0,0,16,255,17,3,1,0,0,0,0,1,14,32,0,16,39,15,0,1,0,0,0}
   if changes then for i,v in pairs(changes) do b[i]=v end end
   return b
 end
@@ -34,6 +34,12 @@ check(not codec.encode(4,{token=1,requestId=2,key=1,value=1.5}),"fraction")
 check(not codec.encode(3,{token=1,requestId=0,key=0}),"zero request id")
 check(not codec.encode(1,{target=0,nonce=0,requestId=1}),"zero nonce")
 local signed=reply(3);put(signed,17,0xFFFFFFFF,4);check(codec.decode(signed,3).value==-1,"signed value")
+check(codec.canWrite(codec.decode(reply(1),1)),"known ESCape32 17.3 schema writable")
+check(codec.canWrite(codec.decode(reply(1,{[15]=2}),1)),"known ESCape32 17.2 stays compatible")
+check(not codec.canWrite(codec.decode(reply(1,{[15]=4}),1)),"unknown 17.4 schema denied")
+check(not codec.canWrite(codec.decode(reply(1,{[14]=16}),1)),"unknown 16.3 schema denied")
+check(not codec.canWrite(codec.decode(reply(1,{[12]=17}),1)),"known revision readonly flag respected")
+check(not codec.canWrite(codec.decode(reply(1,{[27]=7}),1)),"known revision write capability required")
 
 local queue, now, c
 local function fresh()
@@ -82,7 +88,15 @@ check(c.state=="error" and c.values[0]==nil,"wrong key rejected")
 opened();c.get(0);respond(3,{[9]=2,[5]=2,[12]=24,[13]=0,[17]=1})
 check(c.state=="error","wrong token rejected")
 opened();c.reply.schema=0;check(not c.canWrite() and not c.set(0,1),"unknown schema readonly")
+check(not c.get(0) and #queue==0,"unknown schema emits no GET")
 c.reply.schema=1;c.reply.capabilities=7;check(not c.canWrite() and not c.save(),"capability write gate")
+opened();c.reply.patch=2;check(c.canWrite() and c.get(0),"17.2 session remains compatible")
+respond(3,{[9]=2,[12]=24,[13]=0,[17]=1,[15]=2})
+check(c.values[0]==1,"17.2 parameter readback")
+opened();c.reply.patch=4
+check(not c.canWrite() and not c.get(0) and not c.set(0,1) and not c.save() and #queue==0,"17.4 sends no parameter operations even with schema1")
+opened();c.reply.revision=16
+check(not c.canWrite() and not c.get(0) and not c.set(0,1) and not c.save() and #queue==0,"16.3 sends no parameter operations")
 opened();c.get(0);m=take(3);c.close();respond(6,{[3]=5,[4]=9,[9]=3,[12]=21})
 m.processReply(m,reply(3,{[9]=2,[12]=24,[13]=0,[17]=1}))
 check(c.state=="restart_required" and c.values[0]==nil,"late reply cannot revive closed session")

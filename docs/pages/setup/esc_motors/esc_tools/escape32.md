@@ -24,7 +24,14 @@ Its default capabilities report only the protocol core, so this page reports
 backend unavailable and sends no OPEN/GET/SET/SAVE. A supported adapter must
 explicitly report validated CLI, read support and a target mask. Write controls
 also require write capability, a writable session and schema 1 for ESC revision
-17.2. Unknown schemas show identity only.
+17.2 or 17.3, matched explicitly. Revision 17.4 and other unreviewed revisions
+show identity only; claiming schema 1 alone does not unlock them.
+
+The nine parameter definitions and their validation are identical in the pinned
+[17.2 source](https://github.com/neoxic/ESCape32/tree/734097d2825deb49328342335e931ec18ce5823d)
+and [17.3 source](https://github.com/neoxic/ESCape32/tree/1d718c143380c3eb7e6581478990e1496632e5b8).
+Recognizing 17.3 does not establish a working CLI receive path on a Vantac RF007
+motor pad or grant any hardware capability.
 
 ## Settings
 

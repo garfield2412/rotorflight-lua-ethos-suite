@@ -108,7 +108,7 @@ local function open(opts)
     setText("status", status)
     local r = c.reply
     setText("identity", r and ("rev" .. r.revision .. "." .. r.patch .. " / schema " .. r.schema) or "-")
-    if v ~= nil and r and r.schema == 1 then
+    if v ~= nil and codec.hasKnownSchema(r) then
       setText("shown", tostring(raw * codec.PARAMETERS[selected + 1].scale) .. " " .. UNITS[selected + 1])
     else setText("shown", v ~= nil and tostring(raw) or "-") end
     local act, write = c.canAct(), c.canWrite()
@@ -117,7 +117,7 @@ local function open(opts)
     setEnabled("open", codec.canRead(c.caps) == true and target ~= nil and c.token == 0 and not c.pending and c.state ~= "open_unknown")
     setEnabled("parameter", not c.pending and (act or c.token == 0))
     setEnabled("raw", write and v ~= nil)
-    setEnabled("read", act and r ~= nil and r.schema == 1)
+    setEnabled("read", act and codec.hasKnownSchema(r) == true)
     local p = codec.PARAMETERS[selected + 1]
     setEnabled("apply", write and edited and v ~= nil and raw >= p.min and raw <= p.max)
     setEnabled("save", write and c.dirty)

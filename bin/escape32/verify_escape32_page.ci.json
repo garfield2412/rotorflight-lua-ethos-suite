@@ -3,5 +3,5 @@
   "name": "ESCape32 page capability and save semantics",
   "step": "Check real page with transport and Ethos form doubles",
   "script": "bin/escape32/verify_escape32_page.lua",
-  "rationale": "Unknown firmware sends no OPEN; only validated targets are shown; edit requires readback; normalization replaces local drafts; Save does not claim persistence; close removes handlers and subscriptions."
+  "rationale": "Unknown firmware sends no OPEN; only validated targets are shown; edit requires readback; normalization replaces local drafts; Save does not claim persistence; close removes handlers and subscriptions. Verified 17.3 is the main fixture; unknown 17.4/16.3 identities expose no read/edit/apply/save actions."
 }

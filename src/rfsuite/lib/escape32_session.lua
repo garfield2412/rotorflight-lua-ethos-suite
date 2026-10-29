@@ -146,7 +146,7 @@ function M.new(opts)
     return issue(op, {token = c.token, requestId = id, key = key, value = value}, accept)
   end
   function c.get(key)
-    if not c.reply or c.reply.schema ~= 1 then return false end
+    if not codec.hasKnownSchema(c.reply) then return false end
     return operation(codec.OP.GET, key)
   end
   function c.set(key, value) return operation(codec.OP.SET, key, value) end

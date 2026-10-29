@@ -91,9 +91,13 @@ function M.canRead(caps)
     and caps.targets ~= 0 and caps.backend == 1 and caps.maxRequest >= 14
     and caps.maxReply == M.REPLY_SIZE and caps.timeoutMs >= 3000
 end
+function M.hasKnownSchema(reply)
+  -- rev17.2 and rev17.3 have identical CFG_MAP/checkcfg; future patches need review.
+  return reply and reply.schema == 1 and reply.revision == 17
+    and (reply.patch == 2 or reply.patch == 3)
+end
 function M.canWrite(reply)
-  return reply and reply.capabilities & 8 ~= 0 and not reply.readonly
-    and reply.schema == 1 and reply.revision == 17 and reply.patch == 2
+  return M.hasKnownSchema(reply) and reply.capabilities & 8 ~= 0 and not reply.readonly
 end
 
 function M.buildMessage(op, args, onData, onError)

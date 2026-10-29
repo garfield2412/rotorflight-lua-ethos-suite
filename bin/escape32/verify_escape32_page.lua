@@ -28,7 +28,7 @@ local function key(k)return '@i18n(app.modules.esc_tools.escape32.'..k..')@'end
 local function click(k)local f=assert(fields[key(k)],k);check(f.enabled,'enabled '..k);f.press();tick()end
 local function response(op,changes)
  local m=table.remove(pending,1);check(m and m.payload[2]==op,'expected op '..op)
- local b={1,op,0,3,1,0,0,0,1,0,0,16,255,17,2,1,0,0,0,0,1,14,32,0,16,39,15,0,1,0,0,0}
+ local b={1,op,0,3,1,0,0,0,1,0,0,16,255,17,3,1,0,0,0,0,1,14,32,0,16,39,15,0,1,0,0,0}
  for i,v in pairs(changes or {})do b[i]=v end
  m.processReply(m,b);tick()
 end
@@ -56,4 +56,14 @@ sub({connected=true,isArmed=true});tick()
 check(not fields[key('apply')].enabled and not fields[key('save')].enabled,'arming locks page actions')
 local dispose=cleanup;dispose()
 check(sub==nil and tick==nil and event==nil and cleanup==nil,'page removes subscriptions and handlers')
+for _,identity in ipairs({{revision=17,patch=4,schema=0},{revision=17,patch=4,schema=1},{revision=16,patch=3,schema=1}}) do
+ pending={};page.open(opts);tick()
+ click('probe');response(0,{[4]=0,[5]=0,[9]=0,[11]=255})
+ click('open');response(1,{[14]=identity.revision,[15]=identity.patch,[16]=identity.schema})
+ check(fields[key('identity')].text==('rev'..identity.revision..'.'..identity.patch..' / schema '..identity.schema),'unknown identity displayed honestly')
+ check(not fields[key('read')].enabled and not fields[key('raw')].enabled
+  and not fields[key('apply')].enabled and not fields[key('save')].enabled,'unknown revision exposes no parameter actions')
+ check(#pending==0,'unknown revision sends no automatic parameter request')
+ cleanup()
+end
 print('ESCape32 page: '..count..' checks passed')

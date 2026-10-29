@@ -24,6 +24,14 @@ All code findings below refer to these snapshots, not every released build:
 - Suite master: [16924948eb18515e138ad2240bd3712a0c8a90ec](https://github.com/garfield2412/rotorflight-lua-ethos-suite/tree/16924948eb18515e138ad2240bd3712a0c8a90ec).
 - Rotorflight master: [7b54df9e1f34f0bbc825cbfe7df17a0a59cbd032](https://github.com/rotorflight/rotorflight-firmware/tree/7b54df9e1f34f0bbc825cbfe7df17a0a59cbd032).
 - ESCape32 master: [72004effbb3cfd90aa127eedc23a7aa22e5fad78](https://github.com/neoxic/ESCape32/tree/72004effbb3cfd90aa127eedc23a7aa22e5fad78).
+- Schema 1 compatibility: [ESCape32 17.2](https://github.com/neoxic/ESCape32/tree/734097d2825deb49328342335e931ec18ce5823d)
+  and [ESCape32 17.3 / rel17](https://github.com/neoxic/ESCape32/tree/1d718c143380c3eb7e6581478990e1496632e5b8).
+  Both use identical prog.c (blob 21885a08a0d0d1e6c022e8db91d1685a24589127)
+  and util.c/checkcfg (blob d450d1f4a9a569701914ec327666b05111d38d43),
+  so the nine allowed keys, ranges and scales are unchanged. The runtime uses
+  an explicit 17.2/17.3 allowlist; unreviewed 17.4 and other revisions remain
+  blocked. Correction: the originally inspected master 72004eff was already
+  after 17.3; treating that snapshot as evidence for a 17.2-only gate was wrong.
 - [ESCape32 Configuration](https://github.com/neoxic/ESCape32/wiki/Configuration)
   and [Settings](https://github.com/neoxic/ESCape32/wiki/Settings), accessed on the
   research date. These wiki pages track current firmware and can change.
