@@ -49,6 +49,11 @@ Dashboard themes are available for different flight states. See the [Dashboard T
 
 ![Status](https://raw.githubusercontent.com/rotorflight/rotorflight-lua-ethos-suite/master/.github/gfx/status.png)
 
+**ActiveLook**  
+RFSuite also supports ActiveLook glasses widgets for compact in-flight telemetry. Layouts can be configured separately for preflight, inflight, and postflight. See the [ActiveLook Layout Overview](docs/activelook/) for the available layout examples.
+
+![ActiveLook inflight example](docs/activelook/two_top_two_bottom_inflight.png)
+
 **Flight Logs**  
 ![Flight Logs](https://raw.githubusercontent.com/rotorflight/rotorflight-lua-ethos-suite/master/.github/gfx/logs.png)
 
