@@ -1,0 +1,502 @@
+-- Tiny file-backed settings helper for Lite-only preferences.
+--
+-- Self-cache the helper table so repeated loadfile() calls do not duplicate
+-- defaults and parser helpers. Callers still load/save their own snapshots.
+
+if package.loaded["rfsuite.lib.settings_store"] then
+  return package.loaded["rfsuite.lib.settings_store"]
+end
+
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local ini = requireModule("lib/ini.lua")
+local activelookConfig = requireModule("lib/activelook_config.lua")
+local mspApiVersion = requireModule("lib/msp_api_version.lua")
+local tableClone = requireModule("lib/table_clone.lua")
+
+local SETTINGS_DIR = "SCRIPTS:/rfsuite.user"
+local SETTINGS_PATH = SETTINGS_DIR .. "/settings.ini"
+
+local DEFAULTS = {
+  general = {
+    telemetry_logging = true,
+    log_sample_interval = 1,
+    txbatt_type = 0,
+    temperature_unit = 0,
+    -- Red "Armed" bar across the top of the dashboard while armed (#2352).
+    armed_warning = true,
+    -- Default true (always confirm) to match this rewrite's own prior
+    -- unconditional behavior in app/page_runtime.lua's confirmSave()/
+    -- confirmReload() -- adding these as real toggles must not silently
+    -- change what a pilot who never opens Settings sees.
+    save_confirm = true,
+    reload_confirm = true,
+    -- Default true, matching master's own default (main.lua) -- the
+    -- battery-profile chooser auto-prompts on connect when more than one
+    -- profile is configured, same as master's showBatteryTypeStartup.
+    battery_profile_startup = true,
+    -- Default false, matching master's own default (main.lua) -- overwriting
+    -- the pilot's Ethos model name with the FC's craft name is a real,
+    -- visible side effect that shouldn't happen until opted into.
+    syncname = false,
+  },
+  developer = {
+    developer_mode = false,
+    debug_logs = false,
+    log_msp = false,
+    memory_logs = false,
+    -- Simulator-only (see tasks/session.lua's runHandshake()): which
+    -- fixture to hand the MSP_API_VERSION handshake read, to exercise the
+    -- dashboard's unsupported-firmware-family state on demand. "invalid"
+    -- or one of lib/msp_api_version.lua's own SIMULATABLE_VERSIONS
+    -- entries; defaults to the newest of those.
+    simulated_api_version = mspApiVersion.SIMULATABLE_VERSIONS[#mspApiVersion.SIMULATABLE_VERSIONS],
+  },
+  events = {
+    armflags = true,
+    governor = true,
+    voltage = true,
+    voltage_repeat_interval = 10,
+    -- Announce a main pack that has gone while the FC stays alive on a BEC or
+    -- a backup battery (issue #2310). Off by default: it only means anything
+    -- for a model carrying a backup guard or a separate receiver pack, and it
+    -- needs both a pack voltage and a BEC voltage to be readable at all.
+    main_power_lost = false,
+    -- Seconds a low pack reading must hold before the alarm fires, so a
+    -- momentary 3D voltage sag is not called out (issue #2309). 0 disables
+    -- the filter; default 2.0.
+    voltage_hold = 2.0,
+    -- What the low-voltage callout speaks: 0 alert tone only, 1 total pack
+    -- voltage, 2 average cell voltage (issue #2309).
+    voltage_callout = 0,
+    -- Announce the telemetry link going and coming back, but only while the
+    -- model is armed (issue #2311). On by default: the armed gate is what keeps
+    -- a bench power-down silent, so what is left is a link loss with the rotors
+    -- turning -- the one event here a pilot must not have to notice himself.
+    telemetry_lost = true,
+    pid_profile = true,
+    rate_profile = true,
+    battery_profile = true,
+    -- FC status callouts (lib/system_alerts.lua, tasks/audio_events.lua).
+    status_gyro = true,
+    status_gps = true,
+    status_blackbox = true,
+    -- Off by default: "control limit" can be chatty in 3D flight.
+    status_saturation = false,
+    smartfuel = true,
+    smartfuelcallout = 0,
+    smartfuelrepeats = 1,
+    smartfuelhaptic = false,
+    -- Repeats per alert episode (0 = as long as the condition holds, as before) and the vibration
+    -- of each group. The defaults keep what each group did before (#2312): ESC temperature, RX
+    -- voltage and a lost link vibrated; the voltage alarm did not.
+    voltage_repeats = 0,
+    voltage_haptic = false,
+    rx_voltage_repeats = 0,
+    rx_voltage_haptic = true,
+    temp_esc_repeats = 0,
+    temp_esc_haptic = true,
+    telemetry_lost_haptic = true,
+    temp_esc = false,
+    escalertvalue = 90,
+    bec_voltage = false,
+    becalertvalue = 6.5,
+    rx_voltage = false,
+    rxalertvalue = 7.4,
+    adj_f = false,
+    adj_v = false,
+    craft_name = false,
+  },
+  timer = {
+    timeraudioenable = false,
+    elapsedalertmode = 0,
+    prealerton = false,
+    postalerton = false,
+    prealertinterval = 10,
+    prealertperiod = 30,
+    postalertinterval = 10,
+    postalertperiod = 30,
+  },
+  dashboard = {
+    theme = "default",
+    use_same_theme = true,
+    theme_preflight = "system/default",
+    theme_inflight = "system/default",
+    theme_postflight = "system/default",
+  },
+  activelook = activelookConfig.DEFAULTS,
+}
+
+local DASHBOARD_THEMES = {
+  bastion = true,
+  ["aerc-n"] = true,
+  aerc = true,
+  claude = true,
+  danielrc = true,
+  default = true,
+  gismo = true,
+  helihud = true,
+  kevd = true,
+  kse4 = true,
+  kse5 = true,
+  rfstatus = true,
+  ["rt-rc-n"] = true,
+  ["rt-rc"] = true,
+  ["srb-rc"] = true,
+  timer = true,
+}
+
+local function normalizeDashboardTheme(value, allowDisabled, default)
+  if allowDisabled and (value == nil or value == "" or value == "nil" or value == 0 or value == "0") then
+    return "nil"
+  end
+
+  if type(value) ~= "string" then value = default end
+  value = tostring(value or "")
+  if value == "" or value == "nil" then value = default end
+
+  local source, folder = value:match("^([^/]+)/(.+)$")
+  if source == "system" then
+    if type(folder) == "string" and folder:sub(1, 1) == "@" then folder = folder:sub(2) end
+    if DASHBOARD_THEMES[folder] then return "system/" .. folder end
+  elseif DASHBOARD_THEMES[value] then
+    return "system/" .. value
+  end
+
+  return default
+end
+
+local function dashboardThemeKey(value)
+  if type(value) ~= "string" then return DEFAULTS.dashboard.theme end
+  local folder = value:match("^system/(.+)$") or value
+  if folder:sub(1, 1) == "@" then folder = folder:sub(2) end
+  if DASHBOARD_THEMES[folder] then return folder end
+  return DEFAULTS.dashboard.theme
+end
+
+local settings_store = {
+  PATH = SETTINGS_PATH,
+}
+
+local function safeMkdir(path)
+  if os and os.mkdir then pcall(os.mkdir, path) end
+end
+
+local function coerceBool(value, default)
+  if value == nil then return default end
+  if value == true or value == "true" or value == 1 or value == "1" then return true end
+  if value == false or value == "false" or value == 0 or value == "0" then return false end
+  return default
+end
+
+local function clampNumber(value, default, min, max)
+  value = tonumber(value)
+  if not value then value = default end
+  if value < min then value = min end
+  if value > max then value = max end
+  return value
+end
+
+local function coerceEnum(value, default, allowed)
+  if type(value) == "string" and allowed[value] then return value end
+  return default
+end
+
+local SIMULATED_API_VERSION_MODES = {invalid = true}
+for _, version in ipairs(mspApiVersion.SIMULATABLE_VERSIONS) do
+  SIMULATED_API_VERSION_MODES[version] = true
+end
+
+local function normalizeEvents(values)
+  local events = tableClone.shallow(DEFAULTS.events)
+  values = type(values) == "table" and values or {}
+  for key, value in pairs(values) do events[key] = value end
+  events.armflags = coerceBool(events.armflags, DEFAULTS.events.armflags)
+  events.governor = coerceBool(events.governor, DEFAULTS.events.governor)
+  events.voltage = coerceBool(events.voltage, DEFAULTS.events.voltage)
+  events.voltage_repeat_interval = clampNumber(events.voltage_repeat_interval, DEFAULTS.events.voltage_repeat_interval, 5, 120)
+  events.main_power_lost = coerceBool(events.main_power_lost, DEFAULTS.events.main_power_lost)
+  events.voltage_hold = clampNumber(events.voltage_hold, DEFAULTS.events.voltage_hold, 0, 10)
+  events.voltage_callout = clampNumber(events.voltage_callout, DEFAULTS.events.voltage_callout, 0, 2)
+  events.telemetry_lost = coerceBool(events.telemetry_lost, DEFAULTS.events.telemetry_lost)
+  events.pid_profile = coerceBool(events.pid_profile, DEFAULTS.events.pid_profile)
+  events.rate_profile = coerceBool(events.rate_profile, DEFAULTS.events.rate_profile)
+  events.battery_profile = coerceBool(events.battery_profile, DEFAULTS.events.battery_profile)
+  events.status_gyro = coerceBool(events.status_gyro, DEFAULTS.events.status_gyro)
+  events.status_gps = coerceBool(events.status_gps, DEFAULTS.events.status_gps)
+  events.status_blackbox = coerceBool(events.status_blackbox, DEFAULTS.events.status_blackbox)
+  events.status_saturation = coerceBool(events.status_saturation, DEFAULTS.events.status_saturation)
+  events.smartfuel = coerceBool(events.smartfuel, DEFAULTS.events.smartfuel)
+  events.smartfuelcallout = clampNumber(events.smartfuelcallout, DEFAULTS.events.smartfuelcallout, 0, 50)
+  events.smartfuelrepeats = clampNumber(events.smartfuelrepeats, DEFAULTS.events.smartfuelrepeats, 1, 10)
+  events.smartfuelhaptic = coerceBool(events.smartfuelhaptic, DEFAULTS.events.smartfuelhaptic)
+  for _, group in ipairs({"voltage", "rx_voltage", "temp_esc"}) do
+    events[group .. "_repeats"] = clampNumber(events[group .. "_repeats"], 0, 0, 10)
+  end
+  for _, group in ipairs({"voltage", "rx_voltage", "temp_esc", "telemetry_lost"}) do
+    events[group .. "_haptic"] = coerceBool(events[group .. "_haptic"], DEFAULTS.events[group .. "_haptic"])
+  end
+  events.temp_esc = coerceBool(events.temp_esc, DEFAULTS.events.temp_esc)
+  events.escalertvalue = clampNumber(events.escalertvalue, DEFAULTS.events.escalertvalue, 60, 300)
+  events.bec_voltage = coerceBool(events.bec_voltage, DEFAULTS.events.bec_voltage)
+  events.becalertvalue = clampNumber(events.becalertvalue, DEFAULTS.events.becalertvalue, 3.0, 15.0)
+  events.rx_voltage = coerceBool(events.rx_voltage, DEFAULTS.events.rx_voltage)
+  events.rxalertvalue = clampNumber(events.rxalertvalue, DEFAULTS.events.rxalertvalue, 3.0, 15.0)
+  events.adj_f = coerceBool(events.adj_f, DEFAULTS.events.adj_f)
+  events.adj_v = coerceBool(events.adj_v, DEFAULTS.events.adj_v)
+  events.craft_name = coerceBool(events.craft_name, DEFAULTS.events.craft_name)
+  return events
+end
+
+local function normalizeTimer(values)
+  local timer = tableClone.shallow(DEFAULTS.timer)
+  values = type(values) == "table" and values or {}
+  for key, value in pairs(values) do timer[key] = value end
+  timer.timeraudioenable = coerceBool(timer.timeraudioenable, DEFAULTS.timer.timeraudioenable)
+  timer.elapsedalertmode = clampNumber(timer.elapsedalertmode, DEFAULTS.timer.elapsedalertmode, 0, 3)
+  timer.prealerton = coerceBool(timer.prealerton, DEFAULTS.timer.prealerton)
+  timer.postalerton = coerceBool(timer.postalerton, DEFAULTS.timer.postalerton)
+  timer.prealertinterval = clampNumber(timer.prealertinterval, DEFAULTS.timer.prealertinterval, 10, 30)
+  timer.prealertperiod = clampNumber(timer.prealertperiod, DEFAULTS.timer.prealertperiod, 30, 90)
+  timer.postalertinterval = clampNumber(timer.postalertinterval, DEFAULTS.timer.postalertinterval, 10, 30)
+  timer.postalertperiod = clampNumber(timer.postalertperiod, DEFAULTS.timer.postalertperiod, 30, 90)
+  return timer
+end
+
+local function normalize(settings)
+  settings.general = settings.general or {}
+  settings.general.telemetry_logging = coerceBool(settings.general.telemetry_logging, DEFAULTS.general.telemetry_logging)
+  settings.general.log_sample_interval = clampNumber(settings.general.log_sample_interval, DEFAULTS.general.log_sample_interval, 1, 10)
+  settings.general.txbatt_type = clampNumber(settings.general.txbatt_type, DEFAULTS.general.txbatt_type, 0, 2)
+  settings.general.temperature_unit = clampNumber(settings.general.temperature_unit, DEFAULTS.general.temperature_unit, 0, 1)
+  settings.general.armed_warning = coerceBool(settings.general.armed_warning, DEFAULTS.general.armed_warning)
+  settings.general.save_confirm = coerceBool(settings.general.save_confirm, DEFAULTS.general.save_confirm)
+  settings.general.reload_confirm = coerceBool(settings.general.reload_confirm, DEFAULTS.general.reload_confirm)
+  settings.general.battery_profile_startup = coerceBool(settings.general.battery_profile_startup, DEFAULTS.general.battery_profile_startup)
+  settings.general.syncname = coerceBool(settings.general.syncname, DEFAULTS.general.syncname)
+
+  settings.developer = settings.developer or {}
+  settings.developer.developer_mode = coerceBool(settings.developer.developer_mode, DEFAULTS.developer.developer_mode)
+  settings.developer.debug_logs = coerceBool(settings.developer.debug_logs, DEFAULTS.developer.debug_logs)
+  settings.developer.log_msp = coerceBool(settings.developer.log_msp, DEFAULTS.developer.log_msp)
+  settings.developer.memory_logs = coerceBool(settings.developer.memory_logs, DEFAULTS.developer.memory_logs)
+  settings.developer.simulated_api_version = coerceEnum(settings.developer.simulated_api_version, DEFAULTS.developer.simulated_api_version, SIMULATED_API_VERSION_MODES)
+
+  settings.events = normalizeEvents(settings.events)
+  settings.timer = normalizeTimer(settings.timer)
+
+  settings.dashboard = settings.dashboard or {}
+  local defaultTheme = normalizeDashboardTheme(settings.dashboard.theme_preflight or settings.dashboard.theme, false, DEFAULTS.dashboard.theme_preflight)
+  settings.dashboard.use_same_theme = coerceBool(settings.dashboard.use_same_theme, DEFAULTS.dashboard.use_same_theme)
+  settings.dashboard.theme_preflight = normalizeDashboardTheme(settings.dashboard.theme_preflight or settings.dashboard.theme, false, defaultTheme)
+  settings.dashboard.theme_inflight = normalizeDashboardTheme(settings.dashboard.theme_inflight or settings.dashboard.theme_preflight or settings.dashboard.theme, false, settings.dashboard.theme_preflight)
+  settings.dashboard.theme_postflight = normalizeDashboardTheme(settings.dashboard.theme_postflight or settings.dashboard.theme_preflight or settings.dashboard.theme, false, settings.dashboard.theme_preflight)
+  if settings.dashboard.use_same_theme then
+    settings.dashboard.theme_inflight = settings.dashboard.theme_preflight
+    settings.dashboard.theme_postflight = settings.dashboard.theme_preflight
+  end
+  settings.dashboard.theme = dashboardThemeKey(settings.dashboard.theme_preflight)
+
+  -- withDefaults already owns a separate copy of every section.
+  activelookConfig.normalize(settings.activelook)
+  return settings
+end
+
+-- Sections whose keys the suite's schema does not fix, so the key check below does not prune
+-- inside them: activelook decides its keys in activelook_config.withDefaults.
+local SELF_SCHEMA = {activelook = true}
+
+-- Audio switches: the schema defines which sensor keys are supported.
+-- Switch values are serialized as "category,member" source identifiers.
+local ALLOWED_SWITCH_KEYS = {
+  altitude = true,
+  bec_voltage = true,
+  consumption = true,
+  current = true,
+  rpm = true,
+  smartfuel = true,
+  temp_esc = true,
+  throttle_percent = true,
+  voltage = true,
+}
+
+-- Each dashboard theme keeps its own preferences in a section named after the theme ("dashboard.bastion"),
+-- so those sections belong to the theme and are kept whole. A section the suite no longer has is
+-- still dropped.
+local function themeSection(section)
+  return type(section) == "string" and section:match("^dashboard%.%S+$") ~= nil
+end
+
+-- Merges what was read over the schema's defaults. What the schema does not define is dropped: a
+-- section the suite no longer has, and a key an older release wrote (#2325). Saving goes through
+-- here too, so a stale key leaves the file the next time settings are saved.
+function settings_store.withDefaults(settings)
+  local merged = tableClone.nested(DEFAULTS)
+  settings = settings or {}
+  for section, values in pairs(settings) do
+    if type(values) == "table" and themeSection(section) then
+      merged[section] = {}
+      for key, value in pairs(values) do merged[section][key] = value end
+    elseif section == "switches" and type(values) == "table" then
+      local sw = {}
+      for key, value in pairs(values) do
+        if ALLOWED_SWITCH_KEYS[key] and type(value) == "string" and value:match("^%s*%-?%d+%s*,%s*%-?%d+%s*$") then
+          sw[key] = value:match("^%s*(.-)%s*$")
+        end
+      end
+      if next(sw) ~= nil then
+        merged.switches = sw
+      end
+    elseif DEFAULTS[section] ~= nil and type(values) == "table" then
+      merged[section] = merged[section] or {}
+      for key, value in pairs(values) do
+        if SELF_SCHEMA[section] or DEFAULTS[section][key] ~= nil then
+          merged[section][key] = value
+        end
+      end
+    end
+  end
+  return normalize(merged)
+end
+
+function settings_store.load()
+  safeMkdir(SETTINGS_DIR)
+  return settings_store.withDefaults(ini.load_ini_file(SETTINGS_PATH) or {})
+end
+
+function settings_store.save(settings)
+  safeMkdir(SETTINGS_DIR)
+  return ini.save_ini_file(SETTINGS_PATH, settings_store.withDefaults(settings))
+end
+
+function settings_store.clone(settings)
+  return tableClone.nested(settings_store.withDefaults(settings))
+end
+
+function settings_store.same(a, b)
+  a = settings_store.withDefaults(a)
+  b = settings_store.withDefaults(b)
+  for section, values in pairs(a) do
+    for key, value in pairs(values) do
+      if not b[section] or b[section][key] ~= value then return false end
+    end
+  end
+  for section, values in pairs(b) do
+    for key in pairs(values) do
+      if not a[section] or a[section][key] == nil then return false end
+    end
+  end
+  return true
+end
+
+function settings_store.loggingEnabled(settings)
+  return true
+end
+
+-- `type(section) == "table" and section.key or nil` looks equivalent to an
+-- explicit index but isn't: when section.key is itself boolean false, `and`
+-- short-circuits to false, and `false or nil` then discards it in favor of
+-- nil -- silently losing a real "off" value to whatever the caller's own
+-- default happens to be. Every getter below reads a field that can
+-- legitimately be false, so they go through this instead.
+local function fieldValue(section, key)
+  if type(section) ~= "table" then return nil end
+  return section[key]
+end
+
+function settings_store.loggingSampleInterval(settings)
+  local general = type(settings) == "table" and settings.general or nil
+  return clampNumber(fieldValue(general, "log_sample_interval"), DEFAULTS.general.log_sample_interval, 1, 10)
+end
+
+function settings_store.temperatureUnit(settings)
+  local general = type(settings) == "table" and settings.general or nil
+  return clampNumber(fieldValue(general, "temperature_unit"), DEFAULTS.general.temperature_unit, 0, 1)
+end
+
+function settings_store.saveConfirmEnabled(settings)
+  local general = type(settings) == "table" and settings.general or nil
+  return coerceBool(fieldValue(general, "save_confirm"), DEFAULTS.general.save_confirm) == true
+end
+
+function settings_store.reloadConfirmEnabled(settings)
+  local general = type(settings) == "table" and settings.general or nil
+  return coerceBool(fieldValue(general, "reload_confirm"), DEFAULTS.general.reload_confirm) == true
+end
+
+function settings_store.armedWarningEnabled(settings)
+  local general = type(settings) == "table" and settings.general or nil
+  return coerceBool(fieldValue(general, "armed_warning"), DEFAULTS.general.armed_warning) == true
+end
+
+function settings_store.batteryProfileStartupEnabled(settings)
+  local general = type(settings) == "table" and settings.general or nil
+  return coerceBool(fieldValue(general, "battery_profile_startup"), DEFAULTS.general.battery_profile_startup) == true
+end
+
+function settings_store.syncNameEnabled(settings)
+  local general = type(settings) == "table" and settings.general or nil
+  return coerceBool(fieldValue(general, "syncname"), DEFAULTS.general.syncname) == true
+end
+
+function settings_store.developerModeEnabled(settings)
+  local developer = type(settings) == "table" and settings.developer or nil
+  return coerceBool(fieldValue(developer, "developer_mode"), DEFAULTS.developer.developer_mode) == true
+end
+
+function settings_store.debugLogsEnabled(settings)
+  local developer = type(settings) == "table" and settings.developer or nil
+  return coerceBool(fieldValue(developer, "debug_logs"), DEFAULTS.developer.debug_logs) == true
+end
+
+function settings_store.mspLogsEnabled(settings)
+  local developer = type(settings) == "table" and settings.developer or nil
+  return coerceBool(fieldValue(developer, "log_msp"), DEFAULTS.developer.log_msp) == true
+end
+
+function settings_store.memoryLogsEnabled(settings)
+  local developer = type(settings) == "table" and settings.developer or nil
+  return coerceBool(fieldValue(developer, "memory_logs"), DEFAULTS.developer.memory_logs) == true
+end
+
+function settings_store.simulatedApiVersionMode(settings)
+  local developer = type(settings) == "table" and settings.developer or nil
+  return coerceEnum(fieldValue(developer, "simulated_api_version"), DEFAULTS.developer.simulated_api_version, SIMULATED_API_VERSION_MODES)
+end
+
+function settings_store.audioEvents(settings)
+  return normalizeEvents(type(settings) == "table" and settings.events or nil)
+end
+
+function settings_store.audioTimer(settings)
+  return normalizeTimer(type(settings) == "table" and settings.timer or nil)
+end
+
+function settings_store.audioSwitches(settings)
+  -- The switches section has no defaults to merge. Keep this cheap because the
+  -- background audio-switch task calls it from a tight Ethos scheduler slice.
+  return tableClone.shallow(type(settings) == "table" and settings.switches or nil)
+end
+
+function settings_store.dashboard(settings)
+  settings = settings_store.withDefaults(settings)
+  return tableClone.shallow(settings.dashboard)
+end
+
+function settings_store.dashboardTheme(settings, theme)
+  settings = settings_store.withDefaults(settings)
+  return tableClone.shallow(settings["dashboard." .. tostring(theme or "")])
+end
+
+function settings_store.setDashboardTheme(settings, theme, values)
+  if type(settings) ~= "table" then return end
+  local section = "dashboard." .. tostring(theme or "")
+  settings[section] = tableClone.shallow(values)
+end
+
+function settings_store.activelook(settings)
+  settings = settings_store.withDefaults(settings)
+  return tableClone.shallow(settings.activelook)
+end
+
+package.loaded["rfsuite.lib.settings_store"] = settings_store
+return settings_store

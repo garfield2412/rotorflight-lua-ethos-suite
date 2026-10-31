@@ -40,6 +40,10 @@ Appearance/Theming
     fillcolor           : color     -- (Optional) Ring foreground color (theme fallback)
 Geometry
     thickness           : number    -- (Optional) Ring thickness in pixels (default is proportional to radius)
+Progress Mode (Optional; ignored when ringbatt is set)
+    max                 : number    -- (Optional) When set, fill only the share of the ring the value covers between min and max (otherwise the ring is drawn full)
+    min                 : number    -- (Optional) Value at an empty ring in progress mode (default: 0)
+    stattype            : string    -- (Optional) "min", "max" or "avg": show that flight stat for `source` instead of the live value
 Battery Ring Mode (Optional fuel-based battery style)
     ringbatt                 : bool      -- If true, draws 360° fill ring based on fuel (%) and shows mAh consumption
     ringbattsubfont          : font      -- (Optional) Font for subtext in ringbatt mode (e.g., FONT_XS, FONT_S, FONT_STD; default: FONT_XS)
@@ -54,13 +58,15 @@ Battery Ring Mode (Optional fuel-based battery style)
     ringbattsubpaddingbottom : number    -- (Optional) Bottom padding override for subtext
 ]]
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 local lcd = lcd
 
 local floor = math.floor
 local min = math.min
 local max = math.max
 local format = string.format
+local tonumber = tonumber
 
 local render = {}
 
@@ -70,40 +76,78 @@ local resolveThemeColor = utils.resolveThemeColor
 local resolveThresholdColor = utils.resolveThresholdColor
 local resolveFont = utils.resolveFont
 local getPulsingDots = utils.getPulsingDots
+local prepareTextLayout = utils.prepareTextLayout
+local paintTextLayout = utils.paintTextLayout
 local lastDisplayValue = nil
 
 function render.dirty(box)
-
-    if box._lastDisplayValue == nil then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-
-    if box._lastDisplayValue ~= box._currentDisplayValue then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-
-    return false
+    return utils.dirtyOnDisplayValueChange(box)
 end
 
-local function drawArc(cx, cy, radius, thickness, startAngle, endAngle, color)
-    lcd.color(color)
-    local outer = radius
-    local inner = max(1, radius - (thickness or 6))
+local drawArc = utils.drawArc
 
-    startAngle = startAngle % 360
-    endAngle = endAngle % 360
-    if endAngle <= startAngle then endAngle = endAngle + 360 end
+-- Caches the ring's center/radius/thickness (which needs a title font
+-- measurement to derive) so paint() -- Ethos's tight-instruction-budget path
+-- -- doesn't redo that measurement every redraw. See context.lua's
+-- utils.prepareTextLayout() for the fuller rationale.
+local function prepareGeometry(x, y, w, h, box, c)
+    local g = box._geom
+    -- g.thicknessParam is the raw (possibly nil) c.thickness, used as the
+    -- cache key; g.thickness is the resolved value used for drawing. Keeping
+    -- these separate matters -- see arc.lua's prepareGeometry for why
+    -- comparing the resolved value against the raw param breaks the cache.
+    local needGeo = (not g) or g.x ~= x or g.y ~= y or g.w ~= w or g.h ~= h
+        or g.title ~= c.title or g.titlefont ~= c.titlefont or g.titlespacing ~= (c.titlespacing or 0)
+        or g.titlepaddingtop ~= (c.titlepaddingtop or 0) or g.titlepaddingbottom ~= (c.titlepaddingbottom or 0)
+        or g.titlepos ~= c.titlepos or g.thicknessParam ~= (c.thickness or 0)
 
-    local sweep = endAngle - startAngle
-    if sweep <= 180 then
-        lcd.drawAnnulusSector(cx, cy, inner, outer, startAngle, endAngle)
-    else
-        local mid = startAngle + sweep / 2
-        lcd.drawAnnulusSector(cx, cy, inner, outer, startAngle, mid)
-        lcd.drawAnnulusSector(cx, cy, inner, outer, mid, endAngle)
+    if not needGeo then return g end
+
+    g = g or {}
+    g.x, g.y, g.w, g.h = x, y, w, h
+    g.title, g.titlefont = c.title, c.titlefont
+    g.titlespacing = c.titlespacing or 0
+    g.titlepaddingtop = c.titlepaddingtop or 0
+    g.titlepaddingbottom = c.titlepaddingbottom or 0
+    g.titlepos = c.titlepos
+    g.thicknessParam = c.thickness or 0
+
+    local titleHeight = 0
+    if c.title then
+        lcd.font(resolveFont(c.titlefont, FONT_XS))
+        local _, th = lcd.getTextSize(c.title)
+        titleHeight = (th or 0) + g.titlespacing + g.titlepaddingtop + g.titlepaddingbottom
     end
+
+    local cy
+    if c.titlepos == "top" then
+        cy = y + titleHeight + (h - titleHeight) * 0.45
+    elseif c.titlepos == "bottom" then
+        cy = y + (h - titleHeight) * 0.5
+    else
+        cy = y + h * 0.5
+    end
+
+    local ringPadding = 2
+    local baseSize = min(w, h - (c.title and ringPadding * 2 or 0))
+    local ringSize = min(0.88 * (c.title and 1 or 1.05), 1.0)
+    local radius = baseSize * 0.5 * ringSize
+    -- Keep the ring clear of its own title: baseSize ignores the title's
+    -- height, so in a near-square tile the ring ran into the text.
+    if c.titlepos == "top" then
+        radius = min(radius, (h - titleHeight) * 0.45 - ringPadding)
+    elseif c.titlepos == "bottom" then
+        radius = min(radius, (h - titleHeight) * 0.5 - ringPadding)
+    end
+    local thickness = c.thickness or max(8, radius * 0.18)
+
+    g.cx = x + w / 2
+    g.cy = cy
+    g.radius = radius
+    g.thickness = thickness
+
+    box._geom = g
+    return g
 end
 
 function render.wakeup(box)
@@ -113,6 +157,14 @@ function render.wakeup(box)
     local source = getParam(box, "source")
     local value, _, dynamicUnit
     if telemetry and source then value, _, dynamicUnit = telemetry.getSensor(source) end
+
+    -- Postflight rings: show the flight's min/max/avg; the live value
+    -- stands in until the stat exists.
+    local stattype = getParam(box, "stattype")
+    if stattype and telemetry and source and telemetry.getSensorStats then
+        local stats = telemetry.getSensorStats(source)
+        if stats and stats[stattype] ~= nil then value = stats[stattype] end
+    end
 
     local ringbatt = getParam(box, "ringbatt")
     local percent = 0
@@ -131,6 +183,22 @@ function render.wakeup(box)
             mahUnit = nil
         elseif override then
             mahUnit = override
+        end
+    end
+
+    -- Progress mode: the ring fills by value between min and max. Without a
+    -- max the ring is drawn full, as before.
+    local progress = nil
+    if not ringbatt then
+        local gmax = tonumber(getParam(box, "max"))
+        if gmax then
+            local gmin = tonumber(getParam(box, "min")) or 0
+            local v = tonumber(value)
+            if v and gmax > gmin then
+                progress = max(0, min(1, (v - gmin) / (gmax - gmin)))
+            else
+                progress = 0
+            end
         end
     end
 
@@ -172,6 +240,7 @@ function render.wakeup(box)
     c.unit = unit
     c.ringbatt = ringbatt
     c.percent = percent
+    c.progress = progress
     c.mahUnit = mahUnit
     c.novalue = getParam(box, "novalue") or "-"
     c.fillcolor = resolveThresholdColor(value, box, "fillcolor", "fillcolor", thresholds)
@@ -209,37 +278,30 @@ function render.wakeup(box)
     c.ringbattsubpaddingbottom = getParam(box, "ringbattsubpaddingbottom")
     c.ringbattsubfont = getParam(box, "ringbattsubfont") or "FONT_XS"
 
+    if box._dashboardRectW and box._dashboardRectH then
+        local gx, gy = utils.applyOffset(box._dashboardRectX or 0, box._dashboardRectY or 0, box)
+        local gw, gh
+        gx, gy, gw, gh = utils.boxContentRect(gx, gy, box._dashboardRectW, box._dashboardRectH, c.bgcolor)
+        prepareGeometry(gx, gy, gw, gh, box, c)
+        prepareTextLayout(box, gx, gy, gw, gh, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, c.displayValue, c.unit, c.font, c.valuealign, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+    end
 end
 
 function render.paint(x, y, w, h, box)
+    -- Matches objects/navigation/ah.lua's own guard: box._cache is only ever
+    -- populated by render.wakeup() below, so painting before the first
+    -- wakeup (e.g. a host context that calls paint() without ever pairing
+    -- it with wakeup()) must draw nothing, not fall through to a ring
+    -- rendered from bare w/h defaults in legacyPalette()'s fallback color.
+    local c = box._cache
+    if not c then return end
+
     x, y = utils.applyOffset(x, y, box)
-    local c = box._cache or {}
 
     x, y, w, h = utils.drawBoxBackground(x, y, w, h, c.bgcolor)
 
-    local cx = x + w / 2
-
-    local titleHeight = 0
-    if c.title then
-        lcd.font(resolveFont(c.titlefont, FONT_XS))
-        local _, th = lcd.getTextSize(c.title)
-        titleHeight = (th or 0) + (c.titlespacing or 0) + (c.titlepaddingtop or 0) + (c.titlepaddingbottom or 0)
-    end
-
-    local cy
-    if c.titlepos == "top" then
-        cy = y + titleHeight + (h - titleHeight) * 0.45
-    elseif c.titlepos == "bottom" then
-        cy = y + (h - titleHeight) * 0.5
-    else
-        cy = y + h * 0.5
-    end
-
-    local ringPadding = 2
-    local baseSize = min(w, h - (c.title and ringPadding * 2 or 0))
-    local ringSize = min(0.88 * (c.title and 1 or 1.05), 1.0)
-    local radius = baseSize * 0.5 * ringSize
-    local thickness = c.thickness or max(8, radius * 0.18)
+    local g = prepareGeometry(x, y, w, h, box, c)
+    local cx, cy, radius, thickness = g.cx, g.cy, g.radius, g.thickness
 
     if c.ringbatt then
 
@@ -252,7 +314,11 @@ function render.paint(x, y, w, h, box)
     else
 
         drawArc(cx, cy, radius, thickness, 0, 360, c.fillbgcolor)
-        drawArc(cx, cy, radius, thickness, 0, 360, c.fillcolor)
+        if c.progress == nil then
+            drawArc(cx, cy, radius, thickness, 0, 360, c.fillcolor)
+        elseif c.progress > 0 then
+            drawArc(cx, cy, radius, thickness, 0, c.progress * 360, c.fillcolor)
+        end
     end
 
     if c.ringbatt and c.mahUnit then
@@ -284,7 +350,8 @@ function render.paint(x, y, w, h, box)
         lcd.drawText(textX, textY, c.mahUnit)
     end
 
-    utils.box(x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlecolor, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, c.displayValue, c.unit, c.font, c.valuealign, c.textcolor, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom, nil)
+    local layout = prepareTextLayout(box, x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, c.displayValue, c.unit, c.font, c.valuealign, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+    paintTextLayout(layout, c.textcolor, c.titlecolor)
 end
 
 return render

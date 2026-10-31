@@ -1,0 +1,33 @@
+---
+title: Cyclic Behav.
+sidebar_label: Cyclic Behav.
+sidebar_position: 20
+---
+
+# Cyclic Behav.
+
+Cyclic Behav. editor page. Loaded on demand (plain loadfile) only when the user opens Flight Tuning -> Advanced -> Rates Advanced -> Cyclic Behav. -- see app/tool.lua.
+
+## Where to find it
+
+*Configuration* → *Flight Tuning* → *Rate Options* → *Cyclic Behav.*
+
+Greyed out until the flight controller answers. Read-only while the model is armed.
+
+## Settings
+
+| Setting | What it does |
+| --- | --- |
+| Cyclic Ring | Configures Cyclic Ring. |
+| Cyclic Polarity | Configures Cyclic Polarity. |
+
+## Notes
+
+- Changes are written to the flight controller EEPROM upon Save.
+- Parameters are scoped to the currently active Rate profile.
+
+## Related
+
+- [Rotorflight documentation](https://doc.rotorflight.org/)
+
+*Documented against RFSuite Ethos 2.3.1.*

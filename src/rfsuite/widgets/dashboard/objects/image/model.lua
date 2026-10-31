@@ -31,7 +31,8 @@
     imagealign          : string                    -- (Optional) Image alignment ("center", "left", "right", "top", "bottom")
 ]]
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 local model = model
 
 local render = {}
@@ -41,22 +42,35 @@ local getParam = utils.getParam
 local resolveThemeColor = utils.resolveThemeColor
 local loadImage = rfsuite.utils.loadImage
 local isImageTooLarge = rfsuite.utils.isImageTooLarge
+local prepareTextLayout = utils.prepareTextLayout
+local paintTextLayout = utils.paintTextLayout
 
-function render.invalidate(box) box._cfg = nil end
-
-function render.dirty(box)
-    if box._lastDisplayValue == nil then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-    if box._lastDisplayValue ~= box._currentDisplayValue then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-    return false
+function render.invalidate(box)
+    box._cfg = nil
+    box._textLayout = nil
 end
 
+function render.dirty(box)
+    return utils.dirtyOnDisplayValueChange(box)
+end
+
+-- Memo of "craft name -> model photo bitmap", including the negative result
+-- (`false`) so a craft whose photo does not exist is not re-probed against
+-- the filesystem on every cfg build. The bitmap handle here is the very same
+-- userdata context.lua's imageBitmapCache holds, so this map is a second
+-- strong reference to a decoded bitmap: clearing only the context-side caches
+-- on a theme reload would free nothing for the model photo, and a pilot who
+-- cycles through craft names would keep one full decoded photo per craft for
+-- the rest of the app session. Registering a clearer puts this map inside
+-- clearCaches({images = true}), which widgets/dashboard.lua's clearThemeCache()
+-- now requests on every theme reload, model change and widget close (#2380).
 local _imgCache = {}
+
+if utils.registerImageCacheClearer then
+  utils.registerImageCacheClearer(function()
+    for key in pairs(_imgCache) do _imgCache[key] = nil end
+  end)
+end
 
 local function addCandidate(candidates, path)
     if type(path) ~= "string" or path == "" then return end
@@ -146,14 +160,17 @@ local function resolveModelImage(cfg)
     return "widgets/dashboard/gfx/logo-dark.png"
 end
 
+local function getModelBitmapName()
+    if not (model and model.bitmap) then return nil end
+    local bm = model.bitmap()
+    if bm and type(bm) == "string" and bm ~= "" and not string.find(bm, "default_") then
+        return bm
+    end
+    return nil
+end
+
 local function ensureCfg(box)
-    local theme_version = (rfsuite and rfsuite.theme and rfsuite.theme.version) or 0
-    local param_version = box._param_version or 0
-    local cfg = box._cfg
-    if (not cfg) or (cfg._theme_version ~= theme_version) or (cfg._param_version ~= param_version) then
-        cfg = {}
-        cfg._theme_version = theme_version
-        cfg._param_version = param_version
+    return utils.ensureCfg(box, function(cfg, box)
         cfg.box = box
 
         cfg.title = getParam(box, "title")
@@ -181,29 +198,43 @@ local function ensureCfg(box)
         cfg.imagealign = getParam(box, "imagealign")
 
         cfg.image = resolveModelImage(cfg)
-
-        box._cfg = cfg
-    end
-    return box._cfg
+    end)
 end
 
 function render.wakeup(box)
     local cfg = ensureCfg(box)
 
     local craftName = rfsuite and rfsuite.session and rfsuite.session.craftName
-    if cfg._lastCraftName ~= craftName then
+    local modelBitmap = getModelBitmapName()
+    local paramImage = getParam(box, "image")
+    if cfg._lastCraftName ~= craftName or cfg._lastModelBitmap ~= modelBitmap or cfg._lastParamImage ~= paramImage then
         cfg.image = resolveModelImage(cfg)
         cfg._lastCraftName = craftName
+        cfg._lastModelBitmap = modelBitmap
+        cfg._lastParamImage = paramImage
     end
 
     box._currentDisplayValue = cfg.image
+
+    if box._dashboardRectW and box._dashboardRectH then
+        local x, y = utils.applyOffset(box._dashboardRectX or 0, box._dashboardRectY or 0, box)
+        local w, h
+        x, y, w, h = utils.boxContentRect(x, y, box._dashboardRectW, box._dashboardRectH, cfg.bgcolor)
+        prepareTextLayout(box, x, y, w, h, cfg.title, cfg.titlepos, cfg.titlealign, cfg.titlefont, cfg.titlespacing, cfg.titlepadding, cfg.titlepaddingleft, cfg.titlepaddingright, cfg.titlepaddingtop, cfg.titlepaddingbottom, nil, nil, nil, nil, cfg.valuepadding, cfg.valuepaddingleft, cfg.valuepaddingright, cfg.valuepaddingtop, cfg.valuepaddingbottom)
+    end
 end
 
 function render.paint(x, y, w, h, box)
     x, y = utils.applyOffset(x, y, box)
     local c = box._cfg or {}
 
-    utils.box(x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlecolor, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, nil, nil, nil, nil, nil, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom, c.bgcolor, c.image, c.imagewidth, c.imageheight, c.imagealign)
+    x, y, w, h = utils.drawBoxBackground(x, y, w, h, c.bgcolor)
+    -- displayValue/unit are always nil here -- see objects/image/image.lua's
+    -- paint() for why this call still pulls its weight (caches the title
+    -- measurement, exposes the title-adjusted content rect for the image).
+    local layout = prepareTextLayout(box, x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, nil, nil, nil, nil, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+    paintTextLayout(layout, nil, c.titlecolor)
+    utils.drawImageInRect(layout.regionX, layout.regionY, layout.regionW, layout.regionH, c.image, c.imagewidth, c.imageheight, c.imagealign, c.bgcolor)
 end
 
 render.scheduler = 2.0

@@ -37,7 +37,8 @@ thresholds = {
 }
 ]]
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 
 local gmatch = string.gmatch
 local clock = os.clock
@@ -48,6 +49,8 @@ local utils = rfsuite.widgets.dashboard.utils
 local getParam = utils.getParam
 local resolveThemeColor = utils.resolveThemeColor
 local getPulsingDots = utils.getPulsingDots
+local prepareTextLayout = utils.prepareTextLayout
+local paintTextLayout = utils.paintTextLayout
 
 local function splitCSV(str, out)
     local t = out or {}
@@ -60,29 +63,18 @@ local function splitCSV(str, out)
     return t
 end
 
-function render.invalidate(box) box._cfg = nil end
+function render.invalidate(box)
+    box._cfg = nil
+    box._textLayout = nil
+end
 
 function render.dirty(box)
     if not rfsuite.session.telemetryState then return false end
-    if box._lastDisplayValue == nil then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-    if box._lastDisplayValue ~= box._currentDisplayValue then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-    return false
+    return utils.dirtyOnDisplayValueChange(box)
 end
 
 local function ensureCfg(box)
-    local theme_version = (rfsuite and rfsuite.theme and rfsuite.theme.version) or 0
-    local param_version = box._param_version or 0
-    local cfg = box._cfg
-    if (not cfg) or (cfg._theme_version ~= theme_version) or (cfg._param_version ~= param_version) then
-        cfg = {}
-        cfg._theme_version = theme_version
-        cfg._param_version = param_version
+    return utils.ensureCfg(box, function(cfg, box)
         cfg.title = getParam(box, "title")
         cfg.titlepos = getParam(box, "titlepos")
         cfg.titlealign = getParam(box, "titlealign")
@@ -104,9 +96,7 @@ local function ensureCfg(box)
         cfg.valuepaddingtop = getParam(box, "valuepaddingtop")
         cfg.valuepaddingbottom = getParam(box, "valuepaddingbottom")
         cfg.bgcolor = resolveThemeColor("bgcolor", getParam(box, "bgcolor"))
-        box._cfg = cfg
-    end
-    return box._cfg
+    end)
 end
 
 function render.wakeup(box)
@@ -163,6 +153,14 @@ function render.wakeup(box)
 
     box._isLoadingDots = (raw == nil)
     box._currentDisplayValue = displayValue
+
+    if box._dashboardRectW and box._dashboardRectH then
+        local unitForPaint = box._isLoadingDots and nil or cfg.unit
+        local x, y = utils.applyOffset(box._dashboardRectX or 0, box._dashboardRectY or 0, box)
+        local w, h
+        x, y, w, h = utils.boxContentRect(x, y, box._dashboardRectW, box._dashboardRectH, cfg.bgcolor)
+        prepareTextLayout(box, x, y, w, h, cfg.title, cfg.titlepos, cfg.titlealign, cfg.titlefont, cfg.titlespacing, cfg.titlepadding, cfg.titlepaddingleft, cfg.titlepaddingright, cfg.titlepaddingtop, cfg.titlepaddingbottom, box._currentDisplayValue, unitForPaint, cfg.font, cfg.valuealign, cfg.valuepadding, cfg.valuepaddingleft, cfg.valuepaddingright, cfg.valuepaddingtop, cfg.valuepaddingbottom)
+    end
 end
 
 
@@ -173,7 +171,9 @@ function render.paint(x, y, w, h, box)
     local unitForPaint = box._isLoadingDots and nil or c.unit
     local textColor = box._dynamicTextColor or c.defaultTextColor
 
-    utils.box(x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlecolor, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, box._currentDisplayValue, unitForPaint, c.font, c.valuealign, textColor, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom, c.bgcolor)
+    x, y, w, h = utils.drawBoxBackground(x, y, w, h, c.bgcolor)
+    local layout = prepareTextLayout(box, x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, box._currentDisplayValue, unitForPaint, c.font, c.valuealign, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+    paintTextLayout(layout, textColor, c.titlecolor)
 end
 
 render.scheduler = 0.5

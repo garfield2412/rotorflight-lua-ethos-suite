@@ -7,7 +7,8 @@
   Six-column stat grid — same proven approach as gismo's postflight.
 ]] --
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 local lcd     = lcd
 
 local utils      = rfsuite.widgets.dashboard.utils
@@ -59,7 +60,7 @@ local function buildBoxes(W)
         local box = {
             col = col, row = row, colspan = 2, rowspan = 3,
             type = "text", subtype = "stats",
-            source = src, unit = unit or "",
+            source = src, unit = unit,
             title = title, titlepos = "bottom",
             transform = "floor",
             bgcolor    = (col == 1 or col == 5) and colorMode.panelbg or colorMode.paneldarkbg,
@@ -95,7 +96,7 @@ local function buildBoxes(W)
         -- Column 3-4: throttle, current, ESC temp, watts
         stat(3, 1,  "throttle_percent", "@i18n(widgets.dashboard.throttle_max)@",   "%"),
         stat(3, 4,  "current",          "@i18n(widgets.dashboard.current_max)@",    " A",  {bgcolor = colorMode.panelbg}),
-        stat(3, 7,  "temp_esc",         "@i18n(widgets.dashboard.esc_max_temp)@",   "°C"),
+        stat(3, 7,  "temp_esc",         "@i18n(widgets.dashboard.esc_max_temp)@",   nil),
         {
             col = 3, row = 10, colspan = 2, rowspan = 3,
             type = "text", subtype = "watts", source = "max",

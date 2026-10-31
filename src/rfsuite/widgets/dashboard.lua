@@ -1,0 +1,2391 @@
+-- Rotorflight dashboard widget.
+--
+-- Lite keeps the old dashboard's preflight/inflight/postflight theme shape,
+-- while loading only the selected theme and current state page.
+
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local bus = requireModule("lib/bus.lua")
+local modelPreferences = requireModule("lib/model_preferences.lua")
+local settingsStore = requireModule("lib/settings_store.lua")
+local flightStats = requireModule("lib/flight_stats.lua")
+local dataflashErase = requireModule("lib/msp_dataflash_erase.lua")
+local dataflashSummary = requireModule("lib/msp_dataflash_summary.lua")
+local batteryProfileMsp = requireModule("lib/msp_battery_profile.lua")
+local batteryProfileIndex = requireModule("lib/battery_profile_index.lua")
+local ethosVersion = requireModule("lib/ethos_version.lua")
+local mspApiVersion = requireModule("lib/msp_api_version.lua")
+
+-- Only needed once the FC's system_status telemetry has arrived, so it is
+-- loaded on first use rather than with the widget.
+local systemAlerts = nil
+
+local function ensureSystemAlerts()
+  if not systemAlerts then
+    systemAlerts = requireModule("lib/system_alerts.lua")
+  end
+  return systemAlerts
+end
+
+local THEME_DIRS = {
+  bastion = "widgets/dashboard/themes/bastion",
+  ["aerc-n"] = "widgets/dashboard/themes/aerc-n",
+  aerc = "widgets/dashboard/themes/aerc",
+  claude = "widgets/dashboard/themes/claude",
+  danielrc = "widgets/dashboard/themes/danielrc",
+  default = "widgets/dashboard/themes/default",
+  gismo = "widgets/dashboard/themes/gismo",
+  helihud = "widgets/dashboard/themes/helihud",
+  kevd = "widgets/dashboard/themes/kevd",
+  kse4 = "widgets/dashboard/themes/kse4",
+  kse5 = "widgets/dashboard/themes/kse5",
+  rfstatus = "widgets/dashboard/themes/rfstatus",
+  ["rt-rc-n"] = "widgets/dashboard/themes/rt-rc-n",
+  ["rt-rc"] = "widgets/dashboard/themes/rt-rc",
+  ["srb-rc"] = "widgets/dashboard/themes/srb-rc",
+  timer = "widgets/dashboard/themes/timer",
+}
+
+local DEFAULT_DASHBOARD_SETTINGS = {
+  theme = "default",
+  use_same_theme = true,
+  theme_preflight = "system/default",
+  theme_inflight = "system/default",
+  theme_postflight = "system/default",
+}
+local themeDef = nil
+local stateDef = nil
+local themeDefs = {}
+local stateDefs = {}
+local dashboardContext = nil
+local dashboardEngine = nil
+local loadedTheme = nil
+local loadedState = nil
+local systemToolHandle = nil
+-- Second stack sample point, and the reason it exists.
+--
+-- On the X18RS the background task's own reading of
+-- system.getMemoryUsage().mainStackAvailable came back 0 B at every one of 25
+-- samples, minimum AND maximum, across boot, connect, opening the tool and
+-- three menu levels -- while the firmware author reads 9 296 B for the same
+-- field on a radio that also runs this suite. That reading is not explained by
+-- the bus: the deepest bus nesting seen in the whole session was 1, so no
+-- handler ever published from inside a handler.
+--
+-- The instrument that was supposed to separate "the Main task is at the edge"
+-- from "this call site sits deep" could not do it. Both extremes are taken at
+-- ONE fixed call site, and a fixed call site has a fixed depth -- minimum,
+-- maximum and the latest value are the same measurement three times over. They
+-- measure how much the stack usage varies *around* this point, never how deep
+-- this point itself is. Only a reading taken somewhere else can say that.
+--
+-- So: one sample at the top of paint(), which is structurally the same position
+-- as the background task's wakeup -- one frame below Ethos' dispatcher. Two
+-- readings of the same field at two known positions answer the actual
+-- question. If both are 0 the radio is at the edge no matter where anyone
+-- looks; if they differ, the difference is the dispatch context, not us.
+--
+-- Rate-limited because system.getMemoryUsage() builds a Lua table on every
+-- call, and paint() runs at frame rate. On a suite whose heap is a measured
+-- budget, one table per second is acceptable and one per frame is not. The
+-- dashboard does not print this itself; the background task's memory-log line
+-- carries it, so no new output appears on the paint path.
+local PAINT_STACK_SAMPLE_INTERVAL = 1
+local lastPaintStackSampleAt = nil
+local stackProbe = nil
+
+local function sampleStackFromPaint()
+  -- No capability guard: system.getMemoryUsage has been part of Ethos since
+  -- 1.1.0. A guard here can never fire, and it would swallow the one case that
+  -- matters -- the function being absent -- by returning silently instead of
+  -- letting the paint path report a zero it never measured.
+  local now = os.clock()
+  if lastPaintStackSampleAt and (now - lastPaintStackSampleAt) < PAINT_STACK_SAMPLE_INTERVAL then
+    return
+  end
+  lastPaintStackSampleAt = now
+  stackProbe = stackProbe or requireModule("lib/stack_probe.lua")
+  stackProbe.notePaint((system.getMemoryUsage() or {}).mainStackAvailable)
+end
+
+local clock = os.clock-- Set true while app/tool.lua's full-screen tool owns the display (see its
+-- create()/close()) -- matches master's rfsuite.tasks.appRunning gate on
+-- dashboard.lua's own wakeup(): a background-screen widget doing full
+-- object-wakeup/paint-prep work while a *different* screen is the one
+-- actually on the display is pure wasted CPU, every tick, for as long as
+-- the tool stays open.
+local appRunning = false
+bus.subscribe("app.state", function(state) appRunning = state and state.running == true end)
+local GESTURE_MIN_DY = 20
+local GESTURE_MAX_DX = 40
+local GESTURE_CONSUME_TIMEOUT = 0.75
+local TOOLBAR_TIMEOUT = 10
+-- Master keeps inactive dashboard-state preloading disabled by default:
+-- it saves RAM and avoids loading a non-visible theme during startup.
+local PREWARM_STATES = {}
+-- Live OS theme switches (no restart) are only picked up by polling
+-- utils.getOsThemeSignature() and forcing a reload on change -- master does
+-- this every 0.25s in its wakeup(); this rewrite never did it at all, so
+-- every theme (not just one) needed a full restart to pick up a live
+-- theme switch. 5s (vs master's 0.25s) trades a little detection latency
+-- for meaningfully less CPU load -- a live theme switch is a rare, human-
+-- paced action, not something that needs sub-second response.
+local THEME_STATE_CHECK_INTERVAL = 5.0
+local themeStateSignature = nil
+local nextThemeStateCheck = 0
+local INSTRUCTION_BUDGET_ERROR = "Max instructions count reached"
+
+local TOOLBAR_ITEMS = {
+  {name = "Reset", icon = "widgets/dashboard/gfx/toolbar_reset.png", action = "reset_flight"},
+  {name = "Erase", icon = "widgets/dashboard/gfx/toolbar_erase.png", action = "erase_blackbox", isConnected = true, blockedWhileArmed = true},
+  {name = "Battery", icon = "widgets/dashboard/gfx/toolbar_battery.png", action = "battery_profile", isConnected = true, requiresBatteryProfiles = true, blockedWhileArmed = true},
+  {name = "Info", icon = "widgets/dashboard/gfx/toolbar_info.png", action = "info_panel"},
+  {name = "Setup", icon = "widgets/dashboard/gfx/toolbar_app.png", action = "launch_app", requiresOpenPage = true},
+}
+
+--- Is this a model that must not be written to? True when the FC says it is armed, and
+--- also when it said so and the answer is currently missing.
+--
+-- A link that drops in flight clears the armed state in the same step that clears
+-- connected (tasks/session.lua's setConnected), and on reconnect setConnected
+-- publishes before updateArmState has run -- so there is a window in which the FC is
+-- connected and its arm state is nil, while the rotor may well still be turning. That
+-- window is not one tick wide: the sensor-resolution cache is cleared with it, so the
+-- arm flags have to be looked up again, and a miss backs off (lib/telemetry_sensors.lua).
+--
+-- So nil alone must NOT block: an FC that has never reported arm flags at all would be
+-- locked out of these two items for good. armedUnconfirmed is the latch that tells the
+-- two apart -- it is set while the model has been armed and not yet seen disarmed, so
+-- a lost answer counts as armed and an FC that never answered does not (#2505).
+local function armedOrUnconfirmed(widget)
+  if not widget then return false end
+  if widget.isArmed == true then return true end
+  return widget.isArmed == nil and widget.armedUnconfirmed == true
+end
+
+local function trimDashboardCaches(options)
+  local dashboard = dashboardContext and dashboardContext.widgets and dashboardContext.widgets.dashboard
+  if dashboard and dashboard.clearCaches then dashboard.clearCaches(options) end
+end
+
+-- `images = true` is not optional here and not a micro-optimisation: every
+-- caller of this function (requestThemeReload, and close()) throws away
+-- themeDefs/stateDefs and resets the engine, so every object box and its
+-- cfg -- including the `c.panelimg` / `cfg.image` decoded-bitmap handles
+-- resolved through context.utils.loadImage() -- is rebuilt from scratch.
+-- Without asking for the image caches the previously decoded bitmaps stayed
+-- strongly referenced by context.lua's own imageCache/imagePathCache/
+-- imageBitmapCache and by objects/image/model.lua's per-craft _imgCache, so
+-- each theme switch (light -> dark -> light, or a new model on connect, which
+-- routes through requestThemeReload at the modelDashboard comparison) left
+-- the previous generation resident. That is the images branch of
+-- context.widgets.dashboard.clearCaches(), which had no caller anywhere in
+-- the tree until now (#2380).
+local function clearThemeCache()
+  trimDashboardCaches({theme = true, images = true})
+  if dashboardEngine and dashboardEngine.reset then dashboardEngine.reset() end
+  themeDef = nil
+  stateDef = nil
+  for key in pairs(themeDefs) do themeDefs[key] = nil end
+  for key in pairs(stateDefs) do stateDefs[key] = nil end
+  loadedTheme = nil
+  loadedState = nil
+end
+
+local function ensureDashboardContext()
+  if not dashboardContext then
+    dashboardContext = requireModule("widgets/dashboard/context.lua")
+  end
+  return dashboardContext
+end
+
+local function dashboardUtils(load)
+  local context = load and ensureDashboardContext() or dashboardContext
+  return context
+    and context.widgets
+    and context.widgets.dashboard
+    and context.widgets.dashboard.utils
+    or nil
+end
+
+local function ensureDashboardEngine()
+  if not dashboardEngine then
+    dashboardEngine = requireModule("widgets/dashboard/engine.lua")
+  end
+  return dashboardEngine
+end
+
+local function themeKey(value)
+  if type(value) ~= "string" then return "default" end
+  local folder = value:match("^system/(.+)$") or value
+  if folder:sub(1, 1) == "@" then folder = folder:sub(2) end
+  if THEME_DIRS[folder] then return folder end
+  return "default"
+end
+
+local function phaseTheme(dashboard, state)
+  if type(dashboard) ~= "table" then return nil end
+  if dashboard.use_same_theme == true or dashboard.use_same_theme == "true" then
+    return dashboard.theme_preflight or dashboard.theme
+  end
+  if state == "inflight" then return dashboard.theme_inflight or dashboard.theme_preflight or dashboard.theme end
+  if state == "postflight" then return dashboard.theme_postflight or dashboard.theme_preflight or dashboard.theme end
+  return dashboard.theme_preflight or dashboard.theme
+end
+
+local function ensureDashboardSettings(widget)
+  if not widget then return DEFAULT_DASHBOARD_SETTINGS end
+  if not widget.settingsSnapshot then
+    widget.settingsSnapshot = settingsStore.load()
+  end
+  if not widget.dashboardSettings then
+    widget.dashboardSettings = settingsStore.dashboard(widget.settingsSnapshot)
+  end
+  return widget.dashboardSettings or DEFAULT_DASHBOARD_SETTINGS
+end
+
+local function selectedThemeForState(widget, state)
+  local modelTheme = phaseTheme(widget and widget.modelDashboard, state)
+  if modelTheme and modelTheme ~= "nil" then return themeKey(modelTheme) end
+  return themeKey(phaseTheme(ensureDashboardSettings(widget), state))
+end
+
+local function loadThemeDef(theme)
+  theme = themeKey(theme)
+  if themeDefs[theme] then
+    themeDef = themeDefs[theme]
+    loadedTheme = theme
+    return themeDef
+  end
+  local dir = THEME_DIRS[theme] or THEME_DIRS.default
+  themeDef = assert(loadfile(dir .. "/init.lua"))()
+  themeDef.dir = dir
+  themeDefs[theme] = themeDef
+  loadedTheme = theme
+  return themeDef
+end
+
+local function loadStateDef(theme, state)
+  local def = loadThemeDef(theme)
+  local key = themeKey(theme) .. ":" .. tostring(state)
+  if stateDefs[key] then
+    stateDef = stateDefs[key]
+    loadedState = state
+    return stateDef
+  end
+  local file = def[state] or (state .. ".lua")
+  stateDef = assert(loadfile(def.dir .. "/" .. file))()
+  stateDefs[key] = stateDef
+  loadedState = state
+  return stateDef
+end
+
+local function normalizeModelDashboard(dashboard)
+  if type(dashboard) ~= "table" then return nil end
+  return {
+    theme = dashboard.theme,
+    use_same_theme = dashboard.use_same_theme,
+    theme_preflight = dashboard.theme_preflight,
+    theme_inflight = dashboard.theme_inflight,
+    theme_postflight = dashboard.theme_postflight,
+  }
+end
+
+local function sameModelDashboard(a, b)
+  if a == b then return true end
+  if type(a) ~= "table" or type(b) ~= "table" then return false end
+  return a.theme == b.theme
+    and a.use_same_theme == b.use_same_theme
+    and a.theme_preflight == b.theme_preflight
+    and a.theme_inflight == b.theme_inflight
+    and a.theme_postflight == b.theme_postflight
+end
+
+local function loadModelDashboard(widget)
+  if not widget or widget.connected ~= true or not widget.mcuId or widget.mcuId == "" then
+    widget.modelDashboard = nil
+    widget.smartfuelModelType = nil
+    return
+  end
+
+  local prefs = modelPreferences.load(widget.mcuId)
+  widget.modelDashboard = normalizeModelDashboard(prefs and prefs.dashboard)
+  widget.smartfuelModelType = tonumber(prefs and prefs.battery and prefs.battery.smartfuel_model_type) or 0
+end
+
+local function requestPaint(widget)
+  if widget then widget.needsPaint = true end
+end
+
+local function resetDashboardPaintRetry(widget)
+  if not widget then return end
+  widget.dashboardPaintRetryPending = false
+  widget.dashboardPaintRetryIndex = nil
+  widget.dashboardInstructionBudgetRetryLogged = false
+end
+
+local function isInstructionBudgetError(err)
+  return type(err) == "string" and string.find(err, INSTRUCTION_BUDGET_ERROR, 1, true) ~= nil
+end
+
+local function resetDashboardPrewarm(widget)
+  if not widget then return end
+  widget.dashboardPrewarmIndex = 1
+  if widget.dashboardPrewarmed then
+    for key in pairs(widget.dashboardPrewarmed) do widget.dashboardPrewarmed[key] = nil end
+  end
+end
+
+local function requestThemeReload(widget, restoreAfterReload)
+  local wasComplete = widget and widget.dashboardEverPainted == true
+  clearThemeCache()
+  resetDashboardPrewarm(widget)
+  resetDashboardPaintRetry(widget)
+  if widget then
+    widget.themeReloadPending = true
+    widget.themeReloadWasComplete = wasComplete or restoreAfterReload == true
+  end
+  requestPaint(widget)
+end
+
+local function finishThemeReload(widget)
+  if not widget then return end
+  widget.themeReloadPending = false
+  widget.themeReloadWasComplete = false
+end
+
+local function invalidateWidget(widget)
+  if not lcd or not lcd.invalidate then return end
+  local ok = pcall(lcd.invalidate, widget)
+  if not ok then pcall(lcd.invalidate) end
+end
+
+local function invalidateWidgetGlobal(widget)
+  invalidateWidget(widget)
+  if lcd and lcd.invalidate then pcall(lcd.invalidate) end
+end
+
+local function clearToolbarMasks(widget)
+  local masks = widget and widget.toolbarMasks
+  if not masks then return end
+  for key in pairs(masks) do masks[key] = nil end
+end
+
+-- Slide-down info panel (controller, battery and GPS state). Unlike the
+-- toolbar it has no timeout: a pilot checking it before a flight keeps it
+-- open until they slide it up, tap, press Exit, or arm. Its row cache is
+-- only built while it is open and is dropped again on close.
+local function setInfoPanelVisible(widget, visible)
+  if not widget then return end
+  visible = visible == true
+  if widget.infoPanelVisible == visible then return end
+  widget.infoPanelVisible = visible
+  if visible then
+    widget.toolbarVisible = false
+    widget.selectedToolbarIndex = nil
+  else
+    widget.infoPanel = nil
+  end
+  requestPaint(widget)
+end
+
+local function setToolbarVisible(widget, visible)
+  if not widget then return end
+  visible = visible == true
+  if widget.toolbarVisible == visible then return end
+  if visible then setInfoPanelVisible(widget, false) end
+  widget.toolbarVisible = visible
+  widget.toolbarOpenedAt = visible and clock() or 0
+  widget.toolbarLastActive = widget.toolbarOpenedAt
+  widget.toolbarCloseAt = 0
+  if visible and not widget.selectedToolbarIndex then widget.selectedToolbarIndex = 1 end
+  if not visible then
+    widget.selectedToolbarIndex = nil
+    clearToolbarMasks(widget)
+  end
+  requestPaint(widget)
+end
+
+local function resolveToolbarThemeColor(themeColorKey, fallback)
+  if type(themeColorKey) == "number" and type(lcd.themeColor) == "function" and ethosVersion.atLeast({26, 1, 0}) then
+    return lcd.themeColor(themeColorKey)
+  end
+  return fallback
+end
+
+local function toolbarColors()
+  local utils = dashboardUtils(false)
+  local themeState = utils and utils.getThemeState and utils.getThemeState() or {}
+  local defaultColor = resolveToolbarThemeColor(THEME_DEFAULT_COLOR, themeState.primaryColor or lcd.RGB(90, 90, 90, 1))
+  local focusColor = resolveToolbarThemeColor(THEME_FOCUS_COLOR, themeState.focusColor or lcd.RGB(0, 0, 0, 1))
+  local defaultBg = resolveToolbarThemeColor(THEME_DEFAULT_BGCOLOR, themeState.primaryBgColor or lcd.RGB(255, 255, 255, 1))
+  local focusBg = resolveToolbarThemeColor(THEME_FOCUS_BGCOLOR, themeState.focusBgColor or lcd.RGB(230, 230, 230, 1))
+  local pageBg = resolveToolbarThemeColor(THEME_PAGE_BGCOLOR, themeState.pageBgColor or defaultBg)
+  local surfaceBg = (type(lcd.themeColor) == "function" and ethosVersion.atLeast({26, 1, 0})) and pageBg or defaultBg
+  local lineColor = resolveToolbarThemeColor(THEME_BUTTON_BORDER_COLOR, themeState.buttonBorderColor or defaultColor)
+  if lineColor == surfaceBg then
+    lineColor = resolveToolbarThemeColor(THEME_SECONDARY_COLOR, themeState.secondaryColor or defaultColor)
+  end
+  if lineColor == surfaceBg then
+    lineColor = resolveToolbarThemeColor(THEME_PRIMARY_COLOR, themeState.primaryColor or defaultColor)
+  end
+
+  return {
+    surfaceBg = surfaceBg,
+    line = lineColor,
+    tileFill = focusBg,
+    selectedFill = focusColor,
+    text = defaultColor,
+    selectedText = defaultBg,
+  }
+end
+
+local function toolbarBounds(widget, w, h)
+  local lowRes = w <= 640
+  local widthRatio = lowRes and 0.22 or 0.16
+  local minRatio = lowRes and 0.28 or 0.24
+  local maxRatio = lowRes and 0.42 or 0.40
+  local minIconBarH = lowRes and math.min(96, h * 0.48) or 0
+  local barH = math.floor(math.max(h * minRatio, minIconBarH, math.min(h * maxRatio, w * widthRatio)))
+  return 0, h - barH, w, barH
+end
+
+local function fitToolbarLabel(widget, item, maxW, font)
+  local label = item and item.name
+  if type(label) ~= "string" or label == "" then return label end
+  widget.toolbarLabelCache = widget.toolbarLabelCache or {}
+  local cached = widget.toolbarLabelCache[item]
+  if cached and cached.label == label and cached.maxW == maxW and cached.font == font then
+    return cached.text, cached.h
+  end
+
+  local tw, th = lcd.getTextSize(label)
+  local fitted = label
+  local ellipsis = "..."
+  if tw > maxW then
+    local ellW = lcd.getTextSize(ellipsis)
+    if ellW >= maxW then
+      fitted = ellipsis
+    else
+      local trimmed = label
+      while #trimmed > 1 do
+        trimmed = trimmed:sub(1, #trimmed - 1)
+        tw = lcd.getTextSize(trimmed)
+        if tw + ellW <= maxW then
+          fitted = trimmed .. ellipsis
+          break
+        end
+      end
+      if fitted == label then fitted = ellipsis end
+    end
+  end
+
+  if fitted ~= label then _, th = lcd.getTextSize(fitted) end
+  if not cached then
+    cached = {}
+    widget.toolbarLabelCache[item] = cached
+  end
+  cached.label = label
+  cached.maxW = maxW
+  cached.font = font
+  cached.text = fitted
+  cached.h = th or 0
+  return fitted, cached.h
+end
+
+local function loadToolbarMask(widget, path)
+  if not lcd.loadMask then return nil end
+  widget.toolbarMasks = widget.toolbarMasks or {}
+  local mask = widget.toolbarMasks[path]
+  if mask == nil then
+    mask = lcd.loadMask(path, true) or false
+    widget.toolbarMasks[path] = mask
+  end
+  if mask == false then return nil end
+  return mask
+end
+
+local function canOpenSystemTool()
+  return systemToolHandle ~= nil
+    and system
+    and type(system.openPage) == "function"
+    and ethosVersion.atLeast({26, 1, 0})
+end
+
+local function capacityValue(value)
+  if type(value) == "number" then return value end
+  if type(value) == "string" then return tonumber(value:match("(%d+)")) end
+  if type(value) == "table" then
+    if type(value.capacity) == "number" then return value.capacity end
+    if type(value.capacity) == "string" then return tonumber(value.capacity:match("(%d+)")) end
+    if type(value.name) == "string" then return tonumber(value.name:match("(%d+)")) end
+  end
+  return nil
+end
+
+local function buildBatteryProfileList(widget)
+  local profilesRaw = widget and widget.batteryConfig and widget.batteryConfig.profiles
+  local profileList = {}
+  if type(profilesRaw) ~= "table" then return profileList end
+
+  for i = 0, 5 do
+    local capacity = capacityValue(profilesRaw[i])
+    if capacity and capacity > 0 then
+      profileList[#profileList + 1] = {name = tostring(math.floor(capacity + 0.5)) .. "mAh", idx = i}
+    end
+  end
+
+  if #profileList == 0 then
+    -- Fallback for a profiles table that is a 1-based *list* of
+    -- {name = ...} entries rather than the 0-based profiles[0]..[5] of plain
+    -- capacities that lib/msp_battery.lua decodes. ipairs positions are
+    -- 1-based, so the 0-based index is i - 1 -- which is exactly what the old
+    -- normalizeBatteryProfile() got right here by accident, while getting
+    -- everything else wrong. Spell it out instead of relying on that: feeding
+    -- the loop position `i` to a 0-based validator would read as index i and
+    -- shift this whole list by one.
+    for i, profile in ipairs(profilesRaw) do
+      if type(profile) == "table" and profile.name then
+        local declared = profile.idx or profile.index or profile.profile
+        local idx = i - 1
+        if declared ~= nil then
+          idx = batteryProfileIndex.index0(declared) or idx
+        end
+        profileList[#profileList + 1] = {name = profile.name, idx = idx}
+      end
+    end
+  end
+
+  return profileList
+end
+
+local function hasSelectableBatteryProfiles(widget)
+  return #buildBatteryProfileList(widget) > 1
+end
+
+local function isToolbarItemEnabled(widget, item)
+  if not item then return false end
+  -- apiVersionSupported ~= false (not a strict == true) so a not-yet-read
+  -- version doesn't wrongly block a toolbar item before the handshake has
+  -- even had a chance to answer -- only a *confirmed* unsupported FC does.
+  if item.isConnected == true and not (widget and widget.connected == true and widget.apiVersionSupported ~= false) then return false end
+  -- Items that write to the FC are refused while the model is armed, or while its arm
+  -- state is missing after having said armed (#2505, armedOrUnconfirmed).
+  if item.blockedWhileArmed == true and armedOrUnconfirmed(widget) then return false end
+  if item.requiresOpenPage == true and not canOpenSystemTool() then return false end
+  if item.requiresBatteryProfiles == true and not hasSelectableBatteryProfiles(widget) then return false end
+  return true
+end
+
+-- Every overlay (toolbar, info panel, battery picker) dims the dashboard behind
+-- it, so the overlay is the part to look at. The picker uses the same value
+-- (battery_picker.lua DIM_ALPHA).
+local OVERLAY_DIM = lcd.RGB(0, 0, 0, 0.6)
+
+-- Armed warning (#2352): a red bar across the top edge with an "Armed" label hanging
+-- from its centre, over whatever theme is on screen, so a live model is obvious on
+-- every page and theme. Drawn only for a confirmed armed state (widget.isArmed == true),
+-- the same test as the write guards, and only while Settings > General > "Armed
+-- warning" is on (default on). It is an overlay: it does not move any theme layout.
+local ARMED_RED = lcd.RGB(214, 40, 40)
+local ARMED_WHITE = lcd.RGB(255, 255, 255)
+local ARMED_BAR = 4
+
+local function drawArmedWarning(widget, w, h)
+  if widget.isArmed ~= true then return end
+  if not settingsStore.armedWarningEnabled(widget.settingsSnapshot) then return end
+  lcd.color(ARMED_RED)
+  lcd.drawFilledRectangle(0, 0, w, ARMED_BAR)
+
+  local label = "@i18n(widgets.dashboard.info_armed)@"
+  lcd.font(FONT_S)
+  local tw, th = lcd.getTextSize(label)
+  -- Hangs from the centre of the bar.
+  local badgeW, badgeH = tw + 12, th + 6
+  local bx = math.floor((w - badgeW) / 2)
+  lcd.color(ARMED_RED)
+  lcd.drawFilledRectangle(bx, ARMED_BAR, badgeW, badgeH)
+  lcd.color(ARMED_WHITE)
+  lcd.drawText(bx + 6, ARMED_BAR + 3, label)
+end
+
+local function dimDashboard(w, h)
+  lcd.color(OVERLAY_DIM)
+  lcd.drawFilledRectangle(0, 0, w, h)
+end
+
+local function drawToolbar(widget, w, h)
+  if not widget.toolbarVisible then
+    clearToolbarMasks(widget)
+    return
+  end
+
+  local x, y, barW, barH = toolbarBounds(widget, w, h)
+  local colors = toolbarColors()
+  local slots = 6
+  local itemW = barW / slots
+  local lowRes = barW <= 640
+  local slotPad = lowRes and 6 or 12
+  local groupPadTop = lowRes and 4 or 6
+  local textPadTop = lowRes and 3 or 6
+  local iconBottomPad = lowRes and 5 or 8
+  local iconGap = lowRes and 3 or 6
+  local iconSize = 55
+  local labelFont = (lowRes and FONT_XXS) or FONT_XS
+
+  lcd.color(colors.surfaceBg)
+  lcd.drawFilledRectangle(x, y, barW, barH)
+  lcd.color(colors.line)
+  lcd.drawFilledRectangle(x, y, barW, lowRes and 3 or 4)
+  lcd.font(labelFont)
+
+  widget.toolbarRects = widget.toolbarRects or {}
+  for key in pairs(widget.toolbarRects) do widget.toolbarRects[key] = nil end
+
+  for i, item in ipairs(TOOLBAR_ITEMS) do
+    local ix = x + (i - 1) * itemW
+    local bx = ix + slotPad
+    local by = y + slotPad + groupPadTop
+    local bw = itemW - (slotPad * 2)
+    local bh = barH - (slotPad * 2) - groupPadTop
+    local enabled = isToolbarItemEnabled(widget, item)
+    widget.toolbarRects[i] = {x = ix, y = y, w = itemW, h = barH, item = item, enabled = enabled}
+
+    local selected = widget.selectedToolbarIndex == i
+    lcd.color((selected and enabled) and colors.selectedFill or colors.tileFill)
+    lcd.drawFilledRectangle(bx, by, bw, bh)
+    lcd.color((selected and enabled) and colors.selectedText or colors.text)
+    local label, labelH = fitToolbarLabel(widget, item, math.floor(bw - 4), labelFont)
+    local labelY = by + textPadTop
+    lcd.drawText(bx + (bw * 0.5), labelY, label, CENTERED)
+
+    local mask = loadToolbarMask(widget, item.icon)
+    if mask and lcd.drawMask then
+      lcd.color((selected and enabled) and colors.selectedText or colors.text)
+      local minIconY = labelY + (labelH or 0) + iconGap
+      local iconY = by + bh - iconSize - iconBottomPad
+      if iconY < minIconY then iconY = minIconY end
+      lcd.drawMask(math.floor(bx + (bw - iconSize) / 2 + 0.5), math.floor(iconY + 0.5), mask)
+    end
+    if not enabled then
+      lcd.color(lcd.RGB(0, 0, 0, 0.65))
+      lcd.drawFilledRectangle(bx + 2, by + 2, bw - 4, bh - 4)
+    end
+  end
+end
+
+-- Info panel rows are {label, text, color} entries cached per column. Each
+-- row keeps the input it was formatted from (row.key) and only rebuilds its
+-- text when that input changes, so an open panel allocates nothing while
+-- the values hold still.
+local INFO_GOOD = lcd.RGB(0, 170, 60, 1)
+local INFO_WARN = lcd.RGB(230, 150, 0, 1)
+local INFO_BAD = lcd.RGB(210, 40, 40, 1)
+local INFO_TRANSPORT_NAMES = {sport = "S.Port", crsf = "CRSF", sim = "SIM"}
+-- Flight-mode bits (rotorflight-firmware fc/runtime_config.h), first match
+-- wins. Same order as the firmware's own CRSF flight-mode text
+-- (telemetry/crsf.c), so the panel names the mode a CRSF screen shows.
+local INFO_FLIGHT_MODES = {
+  {bit = 0, name = "@i18n(widgets.dashboard.mode_failsafe)@"},
+  {bit = 6, name = "@i18n(widgets.dashboard.mode_gps_rescue)@"},
+  {bit = 5, name = "@i18n(widgets.dashboard.mode_rescue)@"},
+  {bit = 2, name = "@i18n(widgets.dashboard.mode_horizon)@"},
+  {bit = 1, name = "@i18n(widgets.dashboard.mode_angle)@"},
+}
+-- Governor states, as widgets/dashboard/context.lua's GOVERNOR_LABELS.
+local INFO_GOVERNOR_LABELS = {
+  [0] = "OFF",
+  [1] = "IDLE",
+  [2] = "SPOOLUP",
+  [3] = "RECOVERY",
+  [4] = "ACTIVE",
+  [5] = "THR OFF",
+  [6] = "LOST HS",
+  [7] = "AUTOROT",
+  [8] = "BAILOUT",
+  [100] = "DISABLED",
+  [101] = "DISARMED",
+}
+local armingFlags = nil
+
+local function infoRow(rows, i, id, label)
+  local row = rows[i]
+  if not row then
+    row = {}
+    rows[i] = row
+  end
+  if row.id ~= id then
+    row.id = id
+    row.key = false
+    row.key2 = false
+    row.text = nil
+    row.color = nil
+  end
+  row.label = label
+  row.reason = false
+  row.heading = false
+  return row
+end
+
+-- Battery column: the active profile's pack, the live voltage and mAh
+-- used, then a GPS section only while a GPS Sats sensor is reporting --
+-- without one the column is just battery.
+local function refreshBatteryRows(widget, rows, n)
+  local row
+  local config = widget.batteryConfig
+  local cells = config and tonumber(config.cellCount)
+  local profiles = config and config.profiles
+  local active = batteryProfileIndex.index0(widget.batteryProfile) or 0
+  local capacity = type(profiles) == "table" and capacityValue(profiles[active])
+  if not capacity or capacity <= 0 then capacity = config and tonumber(config.batteryCapacity) end
+  if cells and cells > 0 then
+    n = n + 1
+    row = infoRow(rows, n, "pack", "@i18n(widgets.dashboard.info_pack)@")
+    capacity = capacity and math.floor(capacity + 0.5) or 0
+    local key = cells * 100000 + capacity
+    if row.key ~= key then
+      row.key = key
+      row.text = capacity > 0 and string.format("%dS  %dmAh", cells, capacity) or string.format("%dS", cells)
+    end
+  end
+
+  local voltage = tonumber(widget.voltage)
+  if voltage then
+    n = n + 1
+    row = infoRow(rows, n, "volt", "@i18n(widgets.dashboard.voltage)@")
+    local key = math.floor(voltage * 10 + 0.5)
+    if row.key ~= key then
+      row.key = key
+      row.text = string.format("%.1fV", key / 10)
+    end
+  end
+
+  local used = tonumber(widget.consumption)
+  if used then
+    n = n + 1
+    row = infoRow(rows, n, "used", "@i18n(widgets.dashboard.info_used)@")
+    local key = math.floor(used + 0.5)
+    if row.key ~= key then
+      row.key = key
+      row.text = string.format("%dmAh", key)
+    end
+  end
+  return n
+end
+
+local function refreshPowerRows(widget, rows)
+  if widget.connected ~= true then
+    infoRow(rows, 1, "nc", "@i18n(widgets.dashboard.info_not_connected)@")
+    rows.n = 1
+    return
+  end
+
+  local n = refreshBatteryRows(widget, rows, 0)
+  local sats = widget.gpsSats
+  if sats == nil then
+    rows.n = n
+    return
+  end
+
+  n = n + 1
+  local row = infoRow(rows, n, "gpsHead", "@i18n(widgets.dashboard.info_gps)@")
+  row.heading = true
+
+  n = n + 1
+  row = infoRow(rows, n, "sats", "@i18n(widgets.dashboard.info_sats)@")
+  if row.key ~= sats then
+    row.key = sats
+    row.text = tostring(sats)
+  end
+  rows.n = n
+end
+
+local function refreshControllerRows(widget, rows, reasons)
+  local n = 1
+  local row = infoRow(rows, 1, "link", "@i18n(widgets.dashboard.info_link)@")
+  if widget.connected ~= true then
+    row.key = false
+    row.text, row.color = "@i18n(widgets.dashboard.info_not_connected)@", INFO_BAD
+    rows.n = 1
+    return
+  end
+  local transport = widget.mspTransport
+  local lq = tonumber(widget.linkQuality)
+  if lq then lq = math.floor(lq + 0.5) end
+  if row.key ~= transport or row.key2 ~= lq then
+    row.key, row.key2 = transport, lq
+    local name = INFO_TRANSPORT_NAMES[transport] or tostring(transport or "-")
+    row.text = lq and (name .. "  " .. lq .. "%") or name
+    row.color = nil
+  end
+
+  local flags = tonumber(widget.flightModeFlags)
+  if flags then
+    n = n + 1
+    row = infoRow(rows, n, "mode", "@i18n(widgets.dashboard.info_mode)@")
+    flags = math.floor(flags)
+    if row.key ~= flags then
+      row.key = flags
+      row.text = "@i18n(widgets.dashboard.mode_normal)@"
+      for i = 1, #INFO_FLIGHT_MODES do
+        local mode = INFO_FLIGHT_MODES[i]
+        if (flags >> mode.bit) & 1 == 1 then
+          row.text = mode.name
+          break
+        end
+      end
+    end
+  end
+
+  local gov = tonumber(widget.governorState)
+  if gov then
+    n = n + 1
+    row = infoRow(rows, n, "gov", "@i18n(widgets.dashboard.governor)@")
+    gov = math.floor(gov)
+    if row.key ~= gov then
+      row.key = gov
+      row.text = INFO_GOVERNOR_LABELS[gov] or tostring(gov)
+    end
+  end
+
+  n = n + 1
+  row = infoRow(rows, n, "arm", "@i18n(widgets.dashboard.info_arming)@")
+  local mask = widget.armDisableFlags
+  local armKey = widget.isArmed == true and -1 or mask
+  if row.key ~= armKey then
+    row.key = armKey
+    for i = #reasons, 1, -1 do reasons[i] = nil end
+    if armKey == -1 then
+      row.text, row.color = "@i18n(widgets.dashboard.info_armed)@", INFO_BAD
+    elseif mask == nil then
+      row.text, row.color = "-", nil
+    else
+      armingFlags = armingFlags or requireModule("lib/arming_flags.lua")
+      local active = armingFlags.active(mask)
+      for i = 1, #active do reasons[i] = active[i] end
+      if #reasons == 0 then
+        row.text, row.color = "@i18n(widgets.dashboard.info_ready)@", INFO_GOOD
+      else
+        row.text, row.color = "@i18n(widgets.dashboard.info_blocked)@", INFO_WARN
+      end
+    end
+  end
+  local pid, rate = tonumber(widget.pidProfile), tonumber(widget.rateProfile)
+  local batt = batteryProfileIndex.label(widget.batteryProfile)
+  if pid and rate and batt then
+    n = n + 1
+    row = infoRow(rows, n, "profile", "@i18n(widgets.dashboard.profile)@")
+    local key = pid * 100 + rate * 10 + batt
+    if row.key ~= key then
+      row.key = key
+      row.text = string.format("@i18n(widgets.dashboard.info_profiles_fmt)@", pid, rate, batt)
+    end
+  end
+
+  local bec = tonumber(widget.becVoltage)
+  if bec then
+    n = n + 1
+    row = infoRow(rows, n, "bec", "@i18n(widgets.dashboard.bec_voltage)@")
+    local key = math.floor(bec * 10 + 0.5)
+    if row.key ~= key then
+      row.key = key
+      row.text = string.format("%.1fV", key / 10)
+    end
+  end
+
+  local size, used = tonumber(widget.bblSize), tonumber(widget.bblUsed)
+  if size and size > 0 and used then
+    n = n + 1
+    row = infoRow(rows, n, "bbl", "@i18n(widgets.dashboard.blackbox)@")
+    -- Divide first: used * 100 overflows a 32-bit integer past ~21 MB.
+    local pct = math.floor(used / size * 100 + 0.5)
+    if row.key ~= pct then
+      row.key = pct
+      row.text = string.format("@i18n(widgets.dashboard.info_used_fmt)@", pct)
+    end
+  end
+
+  -- Reasons go last: a long list then only loses its own tail off the
+  -- bottom of the panel, never the rows above.
+  for i = 1, #reasons do
+    n = n + 1
+    row = infoRow(rows, n, "reason", reasons[i])
+    row.reason = true
+  end
+  rows.n = n
+end
+
+-- Bottom margin under the columns: room for the grab handle and border.
+local INFO_PANEL_FOOT = 12
+
+local function infoColumnHeight(panel, rows)
+  local height = panel.titleH + panel.gap
+  for i = 1, rows.n do
+    if rows[i].heading then
+      height = height + panel.gap * 2 + panel.titleH
+    else
+      height = height + panel.rowH
+    end
+  end
+  return height
+end
+
+-- As tall as the longer column needs, up to 85% of the dashboard; a column
+-- that still does not fit loses its last rows.
+local function infoPanelHeight(panel, h)
+  local content = math.max(infoColumnHeight(panel, panel.power), infoColumnHeight(panel, panel.fc))
+  return math.min(math.floor(h * 0.85), panel.pad + content + INFO_PANEL_FOOT)
+end
+
+local function drawInfoHeading(panel, title, x, y, colW)
+  lcd.font(panel.titleFont)
+  lcd.color(panel.colors.text)
+  lcd.drawText(x, y, title)
+  y = y + panel.titleH
+  lcd.color(panel.colors.line)
+  lcd.drawFilledRectangle(x, y, colW, 2)
+  lcd.font(panel.rowFont)
+  return y + panel.gap
+end
+
+local function drawInfoColumn(panel, rows, title, x, y, colW, maxY)
+  local colors = panel.colors
+  y = drawInfoHeading(panel, title, x, y, colW)
+  for i = 1, rows.n do
+    local row = rows[i]
+    if row.heading then
+      -- Skip a heading that would have no room for a row under it.
+      if y + panel.gap + panel.titleH + panel.rowH > maxY then return end
+      y = drawInfoHeading(panel, row.label, x, y + panel.gap, colW)
+    else
+      if y + panel.rowH > maxY then return end
+      if row.reason then
+        lcd.color(INFO_WARN)
+        lcd.drawText(x + panel.gap, y, row.label)
+      else
+        lcd.color(colors.text)
+        lcd.drawText(x, y, row.label)
+        if row.text then
+          lcd.color(row.color or colors.text)
+          lcd.drawText(x + colW, y, row.text, RIGHT)
+        end
+      end
+      y = y + panel.rowH
+    end
+  end
+end
+
+local function drawInfoPanel(widget, w, h)
+  if not widget.infoPanelVisible then return end
+  local panel = widget.infoPanel
+  if not panel then
+    panel = {power = {n = 0}, fc = {n = 0}, reasons = {}, colors = toolbarColors()}
+    widget.infoPanel = panel
+  end
+  if panel.layoutW ~= w or panel.layoutH ~= h then
+    local lowRes = w <= 640
+    panel.layoutW, panel.layoutH = w, h
+    panel.pad = lowRes and 8 or 14
+    panel.gap = lowRes and 4 or 6
+    panel.titleFont = lowRes and FONT_S or FONT_STD
+    panel.rowFont = lowRes and FONT_XS or FONT_S
+    lcd.font(panel.titleFont)
+    local _, th = lcd.getTextSize("A")
+    panel.titleH = th + 2
+    lcd.font(panel.rowFont)
+    local _, rh = lcd.getTextSize("A")
+    panel.rowH = rh + panel.gap
+  end
+
+  refreshPowerRows(widget, panel.power)
+  refreshControllerRows(widget, panel.fc, panel.reasons)
+
+  local x, y, panelW, panelH = 0, 0, w, infoPanelHeight(panel, h)
+  local colors = panel.colors
+  local pad = panel.pad
+  lcd.color(colors.surfaceBg)
+  lcd.drawFilledRectangle(x, y, panelW, panelH)
+  lcd.color(colors.line)
+  lcd.drawFilledRectangle(x, y + panelH - 3, panelW, 3)
+  lcd.drawFilledRectangle(math.floor(panelW / 2) - 20, y + panelH - 10, 40, 3)
+
+  local colW = math.floor((panelW - pad * 3) / 2)
+  local maxY = y + panelH - INFO_PANEL_FOOT
+  drawInfoColumn(panel, panel.fc, "@i18n(widgets.dashboard.info_controller)@", x + pad, y + pad, colW, maxY)
+  drawInfoColumn(panel, panel.power, "@i18n(widgets.dashboard.battery)@", x + pad * 2 + colW, y + pad, colW, maxY)
+end
+
+local function applyResetFlight(widget)
+  if not widget then return end
+  -- The flight object is the session's own; its next tick publishes the phase.
+  if widget.flight then widget.flight:reset() end
+  widget.flightmodeState = "preflight"
+  widget.timerLive = 0
+  widget.timerSession = 0
+
+  if model and type(model.resetFlight) == "function" then
+    pcall(model.resetFlight)
+  end
+
+  setToolbarVisible(widget, false)
+  resetDashboardPrewarm(widget)
+  requestPaint(widget)
+  invalidateWidget(widget)
+end
+
+local function askResetFlight(widget)
+  if not form or type(form.openDialog) ~= "function" then
+    applyResetFlight(widget)
+    return
+  end
+
+  form.openDialog({
+    width = nil,
+    title = "@i18n(widgets.dashboard.reset_flight_ask_title)@",
+    message = "@i18n(widgets.dashboard.reset_flight_ask_text)@",
+    buttons = {
+      {
+        label = "@i18n(app.btn_ok)@",
+        action = function()
+          -- Close the dialog immediately and do the actual reset (which
+          -- includes a native model.resetFlight() call) on the next
+          -- wakeup tick -- applyResetFlight() used to run synchronously
+          -- right here, so the dialog visibly hung on "OK" for however
+          -- long that native call took.
+          widget.pendingResetFlight = true
+          return true
+        end,
+      },
+      {
+        label = "@i18n(app.btn_cancel)@",
+        action = function()
+          return true
+        end,
+      },
+    },
+    wakeup = function() end,
+    paint = function() end,
+    options = TEXT_LEFT,
+  })
+end
+
+local function closeEraseDialog(widget)
+  local dialog = widget and widget.eraseDialog
+  if dialog then
+    if dialog.value then dialog:value(100) end
+    if dialog.close then dialog:close() end
+  end
+  if widget then widget.eraseDialog = nil end
+end
+
+-- Clears the erase wait. The generation moves on, so a reply to the erase that is being
+-- cleared (a late acknowledgement, a late summary) is dropped and cannot touch the next erase.
+local function resetEraseWait(widget)
+  widget.eraseGeneration = (widget.eraseGeneration or 0) + 1
+  widget.eraseActive = false
+  widget.eraseReadPending = false
+  widget.eraseReadInFlight = false
+  widget.eraseNextReadAt = nil
+  widget.eraseWaited = 0
+  widget.eraseLastTick = nil
+  widget.eraseDone = false
+  widget.eraseError = false
+  widget.eraseStartedAt = 0
+  widget.eraseProgressValue = 0
+end
+
+local function finishErase(widget, failed)
+  if not widget then return end
+  resetEraseWait(widget)
+  closeEraseDialog(widget)
+  setToolbarVisible(widget, false)
+  requestPaint(widget)
+  invalidateWidget(widget)
+
+  if failed and form and type(form.openDialog) == "function" then
+    form.openDialog({
+      title = "@i18n(app.modules.blackbox.name)@",
+      message = "@i18n(app.modules.blackbox.erase_failed)@",
+      buttons = {
+        {
+          label = "@i18n(app.btn_ok)@",
+          action = function()
+            return true
+          end,
+        },
+      },
+      wakeup = function() end,
+      paint = function() end,
+      options = TEXT_LEFT,
+    })
+  end
+end
+
+-- The erase is done when a summary read taken after it reports the flash ready, or the
+-- board reports no dataflash. The firmware acknowledges the erase before it runs, and the
+-- ready bit is false until the flash is idle, so one read is not enough (#2495 follow-up).
+local ERASE_RETRY_SECONDS = 0.5
+-- A full chip erase takes 40 s typical and up to 200 s (W25Q128FV datasheet, see
+-- flash_w25q128fv.c:97). The timeout is counted from the erase acknowledgement, above
+-- that worst case, and only while the dashboard is awake to wait (see the wakeup).
+local ERASE_TIMEOUT_SECONDS = 240
+local ERASE_EXPECTED_SECONDS = 40
+local ERASE_MAX_TICK_SECONDS = 1
+
+local function summaryHasBit(mask, bit)
+  return (math.floor(tonumber(mask) or 0) & (1 << bit)) ~= 0
+end
+
+-- One retry path for both outcomes that do not end the wait (not ready, or a failed read).
+local function scheduleEraseRetry(widget)
+  widget.eraseReadPending = true
+  widget.eraseNextReadAt = clock() + ERASE_RETRY_SECONDS
+end
+
+local function readBlackboxSummaryAfterErase(widget)
+  if not widget or widget.eraseReadPending ~= true or widget.eraseReadInFlight == true then return end
+  if widget.eraseNextReadAt and clock() < widget.eraseNextReadAt then return end
+  widget.eraseReadPending = false
+  widget.eraseReadInFlight = true
+  -- A reply that arrives after its erase has ended, or after a newer erase has started,
+  -- must not touch the newer erase.
+  local generation = widget.eraseGeneration
+  bus.publish("msp.request", dataflashSummary.buildReadMessage(function(data)
+    if widget.eraseGeneration ~= generation then return end
+    widget.eraseReadInFlight = false
+    if data then
+      widget.bblSize = data.total or widget.bblSize
+      widget.bblUsed = data.used or widget.bblUsed
+    end
+    -- Only a reply that carries the flags can end the wait; any other reply is read again.
+    if data and type(data.flags) == "number" then
+      widget.bblFlags = data.flags
+      if summaryHasBit(data.flags, 0) or not summaryHasBit(data.flags, 1) then
+        widget.eraseDone = true
+        return
+      end
+    end
+    scheduleEraseRetry(widget)
+  end, function()
+    if widget.eraseGeneration ~= generation then return end
+    widget.eraseReadInFlight = false
+    scheduleEraseRetry(widget)
+  end))
+end
+
+local function doEraseBlackbox(widget)
+  if not widget or widget.connected ~= true or armedOrUnconfirmed(widget) or widget.eraseActive == true then return end
+
+  resetEraseWait(widget)
+  widget.eraseActive = true
+  widget.eraseStartedAt = clock()
+  widget.eraseLastTick = widget.eraseStartedAt
+  local generation = widget.eraseGeneration
+
+  if form and type(form.openProgressDialog) == "function" then
+    widget.eraseDialog = form.openProgressDialog({
+      title = "@i18n(app.modules.blackbox.name)@",
+      message = "@i18n(app.modules.blackbox.erasing_dataflash)@",
+      close = function() end,
+      wakeup = function() end,
+    })
+    if widget.eraseDialog then
+      widget.eraseDialog:value(0)
+      widget.eraseDialog:closeAllowed(false)
+    end
+  end
+
+  bus.publish("msp.request", dataflashErase.buildWriteMessage(function()
+    if widget.eraseGeneration ~= generation then return end
+    widget.eraseReadPending = true
+    widget.eraseNextReadAt = nil
+    -- The timeout counts from the acknowledgement: a slow link does not eat into the erase time.
+    widget.eraseWaited = 0
+    widget.eraseLastTick = clock()
+  end, function()
+    if widget.eraseGeneration ~= generation then return end
+    widget.eraseError = true
+  end))
+end
+
+local function askEraseBlackbox(widget)
+  if not widget or widget.connected ~= true then return end
+  if not form or type(form.openDialog) ~= "function" then
+    doEraseBlackbox(widget)
+    return
+  end
+
+  form.openDialog({
+    title = "@i18n(app.modules.blackbox.name)@",
+    message = "@i18n(app.modules.blackbox.erase_prompt)@",
+    buttons = {
+      {
+        label = "@i18n(app.btn_ok)@",
+        action = function()
+          doEraseBlackbox(widget)
+          return true
+        end,
+      },
+      {
+        label = "@i18n(app.btn_cancel)@",
+        action = function()
+          return true
+        end,
+      },
+    },
+    wakeup = function() end,
+    paint = function() end,
+    options = TEXT_LEFT,
+  })
+end
+
+local function closeBatteryDialog(widget)
+  local dialog = widget and widget.batteryDialog
+  if dialog then
+    if dialog.value then dialog:value(100) end
+    if dialog.close then dialog:close() end
+  end
+  if widget then widget.batteryDialog = nil end
+end
+
+local function finishBatteryProfileWrite(widget, failed)
+  if not widget then return end
+  widget.batteryActive = false
+  widget.batteryDone = false
+  widget.batteryError = false
+  widget.batteryStartedAt = 0
+  widget.batteryProgressValue = 0
+  closeBatteryDialog(widget)
+  setToolbarVisible(widget, false)
+  requestPaint(widget)
+  invalidateWidget(widget)
+
+  if failed and form and type(form.openDialog) == "function" then
+    form.openDialog({
+      title = "@i18n(widgets.battery.title)@",
+      message = "@i18n(widgets.battery.write_failed)@",
+      buttons = {
+        {
+          label = "@i18n(app.btn_ok)@",
+          action = function()
+            return true
+          end,
+        },
+      },
+      wakeup = function() end,
+      paint = function() end,
+      options = TEXT_LEFT,
+    })
+  end
+end
+
+local function showBatteryInfo(message)
+  if not form or type(form.openDialog) ~= "function" then return end
+  form.openDialog({
+    title = "@i18n(widgets.battery.title)@",
+    message = message,
+    buttons = {
+      {
+        label = "@i18n(app.btn_ok)@",
+        action = function()
+          return true
+        end,
+      },
+    },
+    wakeup = function() end,
+    paint = function() end,
+    options = TEXT_LEFT,
+  })
+end
+
+local function writeBatteryProfile(widget, profileIndex, profileName)
+  if not widget or widget.connected ~= true or armedOrUnconfirmed(widget) or widget.batteryActive == true then return end
+  -- profileIndex is profile.idx from buildBatteryProfileList(), which walks
+  -- widget.batteryConfig.profiles[0]..profiles[5] -- already the 0-based index
+  -- the MSP 176 payload wants. This only rejects an out-of-range value; it
+  -- must not shift it. The old normalize here subtracted 1 from every 1..5,
+  -- so picking pack 5 activated pack 4 on the flight controller.
+  profileIndex = batteryProfileIndex.index0(profileIndex)
+  if profileIndex == nil then return end
+
+  -- Both sides are 0-based and validated the same way, so a genuine 1 -> 2
+  -- pack change (index 0 -> 1) is now actually seen as a change. Comparing
+  -- two values from the old base-guessing helper could not tell them apart.
+  if batteryProfileIndex.index0(widget.batteryProfile) == profileIndex then
+    showBatteryInfo("@i18n(widgets.battery.msg_battery_selected)@ " .. tostring(profileName))
+    return
+  end
+
+  widget.batteryActive = true
+  widget.batteryStartedAt = clock()
+  widget.batteryProgressValue = 0
+  widget.batteryDone = false
+  widget.batteryError = false
+
+  if form and type(form.openProgressDialog) == "function" then
+    widget.batteryDialog = form.openProgressDialog({
+      title = "@i18n(widgets.battery.title)@",
+      message = "@i18n(app.msg_saving_settings)@",
+      close = function() end,
+      wakeup = function() end,
+    })
+    if widget.batteryDialog then
+      widget.batteryDialog:value(0)
+      widget.batteryDialog:closeAllowed(false)
+    end
+  end
+
+  local message = batteryProfileMsp.buildWriteMessage({batteryProfile = profileIndex}, function()
+    widget.batteryProfile = profileIndex
+    widget.batteryDone = true
+  end, function()
+    widget.batteryError = true
+  end)
+  message.sessionBatteryProfile = profileIndex
+  bus.publish("msp.request", message)
+end
+
+-- The picker is painted, not a form.openDialog: Ethos lays a dialog's buttons
+-- out in one row, and six profiles overflow a 480x320 screen (#2357). The
+-- module is loaded on the first open only, so the boot closure stays as it was.
+local batteryPicker = nil
+
+local function ensureBatteryPicker()
+  if not batteryPicker then
+    batteryPicker = requireModule("widgets/dashboard/battery_picker.lua")
+  end
+  return batteryPicker
+end
+
+local function closeBatteryPicker(widget)
+  if not widget or not widget.batteryPicker then return end
+  widget.batteryPicker = nil
+  requestPaint(widget)
+  invalidateWidget(widget)
+end
+
+local function chooseBatteryProfile(widget)
+  if not widget or widget.connected ~= true or armedOrUnconfirmed(widget) then return end
+  local profileList = buildBatteryProfileList(widget)
+  if #profileList == 0 then
+    showBatteryInfo("@i18n(widgets.battery.no_profiles)@")
+    return
+  end
+
+  local items = {}
+  local selected = 1
+  local activeIndex = batteryProfileIndex.index0(widget.batteryProfile)
+  for i, profile in ipairs(profileList) do
+    -- profile.idx is the 0-based index; label() is the 1-based pack number
+    -- the pilot knows the pack by.
+    items[i] = {
+      number = batteryProfileIndex.label(profile.idx) or 1,
+      name = profile.name,
+      idx = profile.idx,
+      profileName = profile.name,
+    }
+    if profile.idx == activeIndex then selected = i end
+  end
+
+  setToolbarVisible(widget, false)
+  setInfoPanelVisible(widget, false)
+  local module = ensureBatteryPicker()
+  widget.batteryPicker = {
+    items = items,
+    selected = selected,
+    title = "@i18n(widgets.battery.select_title)@",
+    colors = toolbarColors(),
+    dim = lcd.RGB(0, 0, 0, module.DIM_ALPHA),
+    layout = nil,
+  }
+  requestPaint(widget)
+  invalidateWidget(widget)
+end
+
+-- The picker is a panel from the top, like the info panel: its height comes
+-- from its grid (at most 85% of the dashboard), and the layout is built for
+-- that height, so the cells are where the panel draws them.
+local function batteryPickerLayout(widget, w, h)
+  local picker = widget.batteryPicker
+  local module = ensureBatteryPicker()
+  local panelH = module.panelHeight(w, h, #picker.items)
+  local layout = picker.layout
+  if not layout or layout.w ~= w or layout.h ~= panelH then
+    layout = module.layout(w, panelH, picker.items)
+    picker.layout = layout
+  end
+  return layout
+end
+
+local function drawBatteryPicker(widget, w, h)
+  local picker = widget.batteryPicker
+  -- Dim the whole dashboard first, so the panel reads as the thing in front.
+  lcd.color(picker.dim)
+  lcd.drawFilledRectangle(0, 0, w, h)
+  ensureBatteryPicker().draw(batteryPickerLayout(widget, w, h), picker.title, picker.selected, picker.colors)
+end
+
+local function chooseBatteryPickerItem(widget, index)
+  local picker = widget.batteryPicker
+  local item = picker and picker.items[index]
+  if not item then return end
+  closeBatteryPicker(widget)
+  writeBatteryProfile(widget, item.idx, item.profileName)
+end
+
+-- While the picker is open it takes every touch and key: a pack is chosen by
+-- tap or by rotary plus Enter. Exit or Return, a tap outside the panel, or a
+-- swipe up (as for the info panel) closes it without a change. Nothing else in
+-- the dashboard runs under it.
+local function batteryPickerEvent(widget, category, value, x, y)
+  local picker = widget.batteryPicker
+  if category == EVT_TOUCH then
+    if value == TOUCH_START and x and y then
+      picker.touchStartY = y
+      picker.swiped = false
+    elseif value == TOUCH_MOVE and y and picker.touchStartY and not picker.swiped then
+      if y - picker.touchStartY <= -GESTURE_MIN_DY then
+        picker.swiped = true
+        closeBatteryPicker(widget)
+        -- Swallow the rest of this gesture, so the slide does not open the
+        -- toolbar again.
+        widget.gestureConsumeUntilTouchEnd = true
+        widget.gestureConsumeStartedAt = clock()
+      end
+    elseif value == TOUCH_END then
+      if picker.swiped then return true end
+      if x and y then
+        local w, h = lcd.getWindowSize()
+        local index = ensureBatteryPicker().hit(batteryPickerLayout(widget, w, h), x, y)
+        if index then
+          chooseBatteryPickerItem(widget, index)
+        else
+          closeBatteryPicker(widget)
+        end
+      end
+    end
+    return true
+  end
+
+  if category == EVT_KEY and lcd.hasFocus() then
+    if value == ROTARY_LEFT or value == KEY_ROTARY_RIGHT then
+      local delta = value == ROTARY_LEFT and -1 or 1
+      picker.selected = ensureBatteryPicker().step(picker.selected, delta, #picker.items)
+      requestPaint(widget)
+      invalidateWidget(widget)
+    elseif value == KEY_ENTER_BREAK then
+      chooseBatteryPickerItem(widget, picker.selected)
+    elseif value == KEY_EXIT_BREAK or value == KEY_RTN_BREAK then
+      closeBatteryPicker(widget)
+    end
+    system.killEvents(value)
+    return true
+  end
+
+  return true
+end
+
+local function launchSystemTool(widget)
+  if not canOpenSystemTool() then return end
+  setToolbarVisible(widget, false)
+  requestPaint(widget)
+  invalidateWidget(widget)
+  system.openPage({system = systemToolHandle})
+end
+
+local function activateToolbarItem(widget, item)
+  if not item then return false end
+  if not isToolbarItemEnabled(widget, item) then return false end
+  if item.action == "reset_flight" then
+    askResetFlight(widget)
+    return true
+  elseif item.action == "erase_blackbox" then
+    askEraseBlackbox(widget)
+    return true
+  elseif item.action == "battery_profile" then
+    chooseBatteryProfile(widget)
+    return true
+  elseif item.action == "launch_app" then
+    launchSystemTool(widget)
+    return true
+  elseif item.action == "info_panel" then
+    setInfoPanelVisible(widget, true)
+    invalidateWidget(widget)
+    return true
+  end
+  return false
+end
+
+local function create()
+  return {
+    connected = false,
+    isArmed = nil,
+    -- Set while the model has been armed and not yet seen disarmed; nil isArmed
+    -- with this set means the answer was lost, not never given. See armedOrUnconfirmed.
+    armedUnconfirmed = false,
+    craftName = nil,
+    mcuId = nil,
+    lastConnectedMcuId = nil,
+    fcVersion = nil,
+    rfVersion = nil,
+    voltage = nil,
+    batteryConfig = nil,
+    consumption = nil,
+    current = nil,
+    throttlePercent = nil,
+    rpm = nil,
+    linkQuality = nil,
+    tempEsc = nil,
+    escStatusWord = nil,
+    escSignature = nil,
+    tempMcu = nil,
+    becVoltage = nil,
+    fuelPercent = nil,
+    governorMode = nil,
+    governorModeKnown = nil,
+    governorState = nil,
+    rxMap = nil,
+    mspTransport = nil,
+    pidProfile = nil,
+    rateProfile = nil,
+    batteryProfile = nil,
+    timerLive = 0,
+    timerSession = 0,
+    timerTarget = 300,
+    escCurrentLimit = nil,
+    modelStats = nil,
+    bblFlags = nil,
+    bblSize = nil,
+    bblUsed = nil,
+    dashboardSettings = nil,
+    modelDashboard = nil,
+    smartfuelModelType = nil,
+    flightmodeState = "preflight",
+    handler = nil,
+    settingsHandler = nil,
+    taskHandler = nil,
+    taskRunning = false,
+    taskProtocol = nil,
+    -- Per-instance (not module-level, unlike app/tool.lua's own equivalent
+    -- singleton fields) since this widget can have more than one
+    -- simultaneous instance -- see drawBackgroundTaskWarning() below.
+    createdAt = os.clock(),
+    taskStatusAt = nil,
+    needsPaint = true,
+    dashboardEverPainted = false,
+    dashboardPaintRetryPending = false,
+    dashboardPaintRetryIndex = nil,
+    dashboardInstructionBudgetRetryLogged = false,
+    themeReloadPending = false,
+    themeReloadWasComplete = false,
+    dashboardPrewarmIndex = 1,
+    dashboardPrewarmed = {},
+    toolbarVisible = false,
+    toolbarOpenedAt = 0,
+    toolbarLastActive = 0,
+    toolbarCloseAt = 0,
+    selectedToolbarIndex = nil,
+    toolbarRects = {},
+    toolbarMasks = nil,
+    infoPanelVisible = false,
+    infoPanel = nil,
+    pendingResetFlight = false,
+    eraseDialog = nil,
+    eraseActive = false,
+    eraseStartedAt = 0,
+    eraseProgressValue = 0,
+    eraseReadPending = false,
+    eraseDone = false,
+    eraseError = false,
+    batteryDialog = nil,
+    batteryActive = false,
+    batteryStartedAt = 0,
+    batteryProgressValue = 0,
+    batteryDone = false,
+    batteryError = false,
+    batteryDialogShown = false,
+    gestureActive = false,
+    gestureStartX = 0,
+    gestureStartY = 0,
+    gestureTriggered = false,
+    gestureConsumeUntilTouchEnd = false,
+    gestureConsumeStartedAt = 0,
+    isSliding = false,
+    isSlidingStart = 0,
+  }
+end
+
+local function update(widget, snapshot)
+  snapshot = snapshot or {}
+  local previousConnected = widget.connected
+  local previousMcuId = widget.mcuId
+  local previousArmed = widget.isArmed
+  widget.connected = snapshot.connected == true
+  widget.isArmed = snapshot.isArmed
+  -- The latch armedOrUnconfirmed reads: set while the model has been armed and not yet
+  -- seen disarmed. A nil answer leaves it alone on purpose -- that is the lost-answer
+  -- window, and clearing the latch there is what would open the writes again (#2505).
+  if widget.isArmed == true then
+    widget.armedUnconfirmed = true
+  elseif widget.isArmed == false then
+    widget.armedUnconfirmed = false
+  end
+  -- The info panel covers most of the dashboard, so arming closes it.
+  if widget.isArmed == true and previousArmed ~= true then setInfoPanelVisible(widget, false) end
+  -- Arming also closes an open battery picker, because a pack write is refused
+  -- while armed; the picker must not stay open to accept one (#2505).
+  if widget.isArmed == true and previousArmed ~= true then closeBatteryPicker(widget) end
+  if widget.isArmed ~= previousArmed then invalidateWidget(widget) end
+  widget.armDisableFlags = snapshot.armDisableFlags
+  widget.systemStatus = snapshot.systemStatus
+  widget.systemConfig = snapshot.systemConfig
+  widget.flightModeFlags = snapshot.flightModeFlags
+  widget.gpsSats = snapshot.gpsSats
+
+  widget.craftName = snapshot.craftName
+  widget.mcuId = snapshot.mcuId
+  widget.fcVersion = snapshot.fcVersion
+  widget.rfVersion = snapshot.rfVersion
+  widget.apiVersionMajor = snapshot.apiVersionMajor
+  widget.apiVersionMinor = snapshot.apiVersionMinor
+  widget.apiVersionSupported = snapshot.apiVersionSupported
+  widget.mainPowerLost = snapshot.mainPowerLost == true
+  widget.voltage = snapshot.voltage
+  widget.batteryConfig = snapshot.batteryConfig
+  widget.consumption = snapshot.consumption
+  widget.current = snapshot.current
+  widget.throttlePercent = snapshot.throttlePercent
+  widget.rpm = snapshot.rpm
+  widget.linkQuality = snapshot.linkQuality
+  widget.tempEsc = snapshot.tempEsc
+  widget.escStatusWord = snapshot.escStatusWord
+  widget.escSignature = snapshot.escSignature
+  widget.tempMcu = snapshot.tempMcu
+  widget.becVoltage = snapshot.becVoltage
+  widget.fuelPercent = snapshot.fuelPercent
+  widget.governorMode = snapshot.governorMode
+  widget.governorModeKnown = snapshot.governorModeKnown
+  widget.governorState = snapshot.governorState
+  widget.rxMap = snapshot.rxMap
+  widget.mspTransport = snapshot.mspTransport
+  widget.pidProfile = snapshot.pidProfile
+  widget.rateProfile = snapshot.rateProfile
+  widget.batteryProfile = snapshot.batteryProfile
+  widget.timerLive = snapshot.timerLive or 0
+  widget.timerSession = snapshot.timerSession or 0
+  widget.timerTarget = snapshot.timerTarget or 300
+  widget.smartfuelModelType = snapshot.smartfuelModelType
+  widget.escCurrentLimit = snapshot.escCurrentLimit
+  widget.modelStats = snapshot.modelStats
+  widget.bblFlags = snapshot.bblFlags
+  widget.bblSize = snapshot.bblSize
+  widget.bblUsed = snapshot.bblUsed
+  -- The phase and extremes are owned by the session (lib/flight_stats.lua). The
+  -- dashboard's own sensor samples write into the same table, so it is shared.
+  widget.flight = snapshot.flight
+  widget.dashboardStats = (snapshot.flight and snapshot.flight.stats) or {}
+
+  if widget.mcuId ~= previousMcuId and widget.connected == true and widget.mcuId and widget.mcuId ~= "" then
+    if widget.lastConnectedMcuId and widget.lastConnectedMcuId ~= widget.mcuId then
+      -- A genuinely different aircraft just connected. session.lua nils
+      -- out mcuId on every disconnect, so previousMcuId (this tick's prior
+      -- value) is always nil right here and can't distinguish "same model
+      -- reconnecting" from "different model connected" -- lastConnectedMcuId
+      -- persists across that gap for the real comparison. Postflight/
+      -- inflight state, min/max stats, and timers from the previous model
+      -- must not bleed into the new one.
+      widget.timerLive = 0
+      widget.timerSession = 0
+    end
+    widget.lastConnectedMcuId = widget.mcuId
+
+    local previousModelDashboard = widget.modelDashboard
+    loadModelDashboard(widget)
+    if not sameModelDashboard(previousModelDashboard, widget.modelDashboard) then
+      requestThemeReload(widget)
+    end
+  end
+
+  -- Reconnect and craft changes reset the flight phase and extremes in the
+  -- session (lib/flight_stats.lua), which sees the same transitions.
+  if previousConnected == false and widget.connected == true then
+  elseif previousConnected == true and widget.connected ~= true then
+    -- Re-arm the startup battery-profile prompt for the next connection
+    -- (matches master's own reset of session.batteryDialogShown on
+    -- disconnect) -- otherwise reconnecting the same craft would never
+    -- prompt again for the rest of this widget's lifetime.
+    widget.batteryDialogShown = false
+    closeBatteryPicker(widget)
+  end
+
+  widget.flightmodeState = snapshot.flightState or "preflight"
+end
+
+local function dashboardState(widget)
+  return flightStats.layoutPhase(widget.flightmodeState or "preflight")
+end
+
+-- Runs on every paint() and every prepare. settingsStore.dashboardTheme()
+-- rebuilds and re-normalises the whole settings table (withDefaults()) to read
+-- one section -- ~2k Lua instructions a call, measured with
+-- bin/perf/measure_dashboard_instructions.lua, against Ethos's 20000-per-call
+-- limit. Its result only changes with the snapshot or the theme, and
+-- settingsHandler replaces the snapshot table (never edits it) on every
+-- settings change, so identity is a sufficient key. setPreferences() still
+-- runs each call: the theme configure pages edit the live prefs through
+-- savePreference(), and this keeps resetting them exactly as before.
+local function setDashboardPreferences(widget, theme)
+  ensureDashboardSettings(widget)
+  local snapshot = widget.settingsSnapshot
+  if widget.dashboardPrefsSnapshot ~= snapshot or widget.dashboardPrefsTheme ~= theme then
+    widget.dashboardPrefsSnapshot = snapshot
+    widget.dashboardPrefsTheme = theme
+    widget.dashboardPrefsValues = settingsStore.dashboardTheme(snapshot, theme)
+  end
+  ensureDashboardContext().widgets.dashboard.setPreferences(widget.dashboardPrefsValues)
+end
+
+local function prepareDashboard(widget)
+  local w, h = lcd.getWindowSize()
+  local state = dashboardState(widget)
+  local theme = selectedThemeForState(widget, state)
+  setDashboardPreferences(widget, theme)
+  local engine = ensureDashboardEngine()
+  if engine.wakeup then
+    return engine.wakeup(widget, loadStateDef(theme, state), w, h)
+  end
+  return true
+end
+
+local function handleDashboardResize(widget)
+  if not widget or not lcd or not lcd.getWindowSize then return end
+  local w, h = lcd.getWindowSize()
+  local previousW = widget.dashboardWindowW
+  local previousH = widget.dashboardWindowH
+  if previousW == w and previousH == h then return end
+
+  widget.dashboardWindowW = w
+  widget.dashboardWindowH = h
+  if previousW == nil or previousH == nil then return end
+
+  if widget.dashboardEverPainted ~= true or widget.themeReloadPending == true then
+    resetDashboardPrewarm(widget)
+    resetDashboardPaintRetry(widget)
+    requestPaint(widget)
+  end
+end
+
+local function paintDashboard(widget, w, h)
+  local state = dashboardState(widget)
+  local theme = selectedThemeForState(widget, state)
+  setDashboardPreferences(widget, theme)
+  local ok, result = pcall(ensureDashboardEngine().paint, widget, loadThemeDef(theme), loadStateDef(theme, state), state, w, h)
+  if not ok then
+    if isInstructionBudgetError(result) then
+      if widget and widget.dashboardInstructionBudgetRetryLogged ~= true then
+        print("[dashboard] paint budget exhausted; retrying next tick: " .. tostring(result))
+        widget.dashboardInstructionBudgetRetryLogged = true
+      end
+      if widget then widget.dashboardPaintRetryPending = true end
+      return false
+    end
+    print("[dashboard] paint failed: " .. tostring(result))
+    if widget then widget.dashboardPaintRetryPending = false end
+    return true
+  end
+  ok = result
+  if ok == false then
+    if widget then widget.dashboardPaintRetryPending = true end
+    return false
+  end
+  if widget then
+    widget.dashboardPaintRetryPending = false
+    widget.dashboardEverPainted = true
+  end
+  return true
+end
+
+local function prewarmDashboardState(widget)
+  if not widget then return end
+  local index = widget.dashboardPrewarmIndex or 1
+  if index > #PREWARM_STATES then return end
+
+  local state = PREWARM_STATES[index]
+  local theme = selectedThemeForState(widget, state)
+  local key = theme .. ":" .. state
+  widget.dashboardPrewarmed = widget.dashboardPrewarmed or {}
+
+  widget.dashboardPrewarmIndex = index + 1
+  if widget.dashboardPrewarmed[key] then return end
+
+  setDashboardPreferences(widget, theme)
+  local engine = ensureDashboardEngine()
+  if engine.preload then engine.preload(widget, loadStateDef(theme, state)) end
+  widget.dashboardPrewarmed[key] = true
+end
+
+-- Lightweight dashboard error overlays: "background task not running",
+-- "connected to invalid/unsupported firmware", and the FC status alerts from
+-- lib/system_alerts.lua (red for critical, amber for warnings). All
+-- share this same single-line strip across the footer (bottom edge) of
+-- the screen, drawn on top of whatever the theme/toolbar already painted
+-- there, not a modal dialog or a restructuring of the normal paint
+-- layout. Footer rather than header: keeps the top of the screen (craft
+-- name/link status, in most themes) clear. Each stays up for as long as
+-- its own condition holds, not a timed toast -- the underlying problem
+-- doesn't clear itself. Can visually stack with the toolbar (also
+-- footer-anchored, see toolbarBounds()) if the pilot manually swipes it
+-- open while one of these is showing -- an intentionally unhandled rare
+-- overlap, not worth the complexity for how lightweight this is meant to
+-- stay. At most one shows at a time -- see drawFooterAlert()'s own
+-- priority ordering.
+local FOOTER_ALERT_BG = lcd.RGB(180, 20, 20, 1)
+local FOOTER_ALERT_TEXT = lcd.RGB(255, 255, 255, 1)
+local FOOTER_WARNING_BG = lcd.RGB(230, 150, 0, 1)
+local FOOTER_WARNING_TEXT = lcd.RGB(0, 0, 0, 1)
+
+local function drawFooterBanner(w, h, text, bg, fg)
+  lcd.font(w <= 640 and FONT_XS or FONT_S)
+  local _, textH = lcd.getTextSize(text)
+  local bannerH = textH + (w <= 640 and 8 or 12)
+  local bannerY = h - bannerH
+
+  lcd.color(bg or FOOTER_ALERT_BG)
+  lcd.drawFilledRectangle(0, bannerY, w, bannerH)
+  lcd.color(fg or FOOTER_ALERT_TEXT)
+  lcd.drawText(w * 0.5, bannerY + (bannerH - textH) * 0.5, text, CENTERED)
+end
+
+-- Highest-priority FC status alert, with "(+N)" when others are active too.
+-- The banner text is cached per (rule, count) so paint doesn't build a new
+-- string every frame.
+local statusBannerRule, statusBannerCount, statusBannerText = nil, 0, nil
+
+local function drawStatusBanner(widget, w, h)
+  if widget.systemStatus == nil and widget.systemConfig == nil then return end
+  local alerts = ensureSystemAlerts()
+  local rule, count = alerts.topBanner(widget.systemStatus, widget.systemConfig)
+  if rule == nil then return end
+
+  if rule ~= statusBannerRule or count ~= statusBannerCount then
+    statusBannerRule, statusBannerCount = rule, count
+    statusBannerText = count > 1 and (rule.text .. " (+" .. (count - 1) .. ")") or rule.text
+  end
+
+  if rule.level == alerts.LEVEL.CRITICAL then
+    drawFooterBanner(w, h, statusBannerText, FOOTER_ALERT_BG, FOOTER_ALERT_TEXT)
+  else
+    drawFooterBanner(w, h, statusBannerText, FOOTER_WARNING_BG, FOOTER_WARNING_TEXT)
+  end
+end
+
+-- See lib/msp_api_version.lua's classifyUnsupported() for the two states
+-- this distinguishes ("invalid": a different firmware family entirely,
+-- wrong product, not just an old version of this one; "unsupported":
+-- right family, minor below this rebuild's own floor, needs a firmware
+-- update).
+local function apiVersionWarningText(widget)
+  local reason, familyName = mspApiVersion.classifyUnsupported(widget.apiVersionMajor, widget.apiVersionMinor)
+  if not reason then return nil end
+  local version = tostring(widget.apiVersionMajor) .. "." .. tostring(widget.apiVersionMinor)
+  if reason == "invalid" then
+    if familyName then
+      return "@i18n(widgets.dashboard.startup_invalid_device)@: " .. familyName .. " (MSP " .. version .. ")"
+    end
+    return "@i18n(widgets.dashboard.startup_invalid_device)@ (MSP " .. version .. ")"
+  end
+  return "@i18n(widgets.dashboard.startup_unsupported_version)@ (MSP " .. version .. ")"
+end
+
+-- Mirrors app/tool.lua's own isBackgroundTaskRunning()/TASK_ALERT_GRACE
+-- watchdog (kept independent, per-widget-instance state rather than
+-- shared -- see this file's header comment on why the three subsystems
+-- never touch each other's internals directly), tracking "task.status"
+-- staleness the same way. Needed here too, not just in app/tool.lua's own
+-- popup: a pilot watching the dashboard (not the full-screen tool) gets
+-- no other indication the background task -- which owns the MSP link/
+-- session/telemetry this whole widget depends on -- has stopped running.
+local BG_TASK_STATUS_TIMEOUT = 3.0
+-- See app/tool.lua's own TASK_ALERT_GRACE for the full reasoning; kept in
+-- sync with that same value.
+local BG_TASK_ALERT_GRACE = 10.0
+
+local function isBackgroundTaskRunning(widget)
+  return widget.taskStatusAt ~= nil and (os.clock() - widget.taskStatusAt) <= BG_TASK_STATUS_TIMEOUT
+end
+
+local function backgroundTaskGraceExpired(widget)
+  return widget.createdAt ~= nil and (os.clock() - widget.createdAt) >= BG_TASK_ALERT_GRACE
+end
+
+-- Priority order: background-task-down first (the more fundamental
+-- problem -- without it, session/MSP state can never resolve either way,
+-- so widget.connected can never even become true), then invalid/
+-- unsupported firmware, then FC status alerts. In practice the first two are
+-- close to mutually exclusive already (widget.connected requires the
+-- background task to be alive), but keeping an explicit order costs nothing
+-- and avoids ever drawing two at once.
+local function drawFooterAlert(widget, w, h)
+  if not widget then return end
+  if not isBackgroundTaskRunning(widget) then
+    if not backgroundTaskGraceExpired(widget) then return end
+    drawFooterBanner(w, h, "@i18n(app.msg_background_task_missing_title)@")
+    return
+  end
+
+  -- Main power lost outranks the firmware warnings and the FC status alerts: the flight
+  -- pack is gone while the receiver still runs on backup power (#2358).
+  if widget.connected == true and widget.mainPowerLost == true then
+    drawFooterBanner(w, h, "@i18n(app.msg_main_power_lost_banner)@", FOOTER_ALERT_BG, FOOTER_ALERT_TEXT)
+    return
+  end
+
+  if widget.connected == true and widget.apiVersionSupported == false then
+    local text = apiVersionWarningText(widget)
+    if text then
+      drawFooterBanner(w, h, text)
+      return
+    end
+  end
+
+  if widget.connected == true then drawStatusBanner(widget, w, h) end
+end
+
+local function paint(widget)
+  sampleStackFromPaint()
+  local w, h = lcd.getWindowSize()
+  -- A pending theme reload is finished by wakeup() (requestThemeReload() sets
+  -- needsPaint), not here. Preparing here as well ran a second first-wake pass
+  -- on top of engine.paint()'s own, and put the first paint after a connect or
+  -- theme change over Ethos's 20000-instruction limit on dense themes
+  -- (bin/perf/measure_dashboard_instructions.lua). Boxes not yet woken paint
+  -- their placeholder shell until wakeup() reaches them.
+  if paintDashboard(widget, w, h) == false then
+    requestPaint(widget)
+    invalidateWidgetGlobal(widget)
+    return
+  end
+  if widget.toolbarVisible then dimDashboard(w, h) end
+  drawToolbar(widget, w, h)
+  if widget.batteryPicker then
+    -- The picker is modal: nothing is drawn over it. The footer banner would
+    -- cover the bottom row of pack cells (CodeRabbit on #2519), so it waits
+    -- until the picker closes. The armed bar stays under the picker, as before.
+    drawArmedWarning(widget, w, h)
+    drawBatteryPicker(widget, w, h)
+    return
+  end
+  -- The panel draws on top of a full theme paint. On a dense theme's first
+  -- paint after a reload the two together can pass Ethos's instruction
+  -- limit; retry the frame next tick, as paintDashboard() does.
+  if widget.infoPanelVisible then
+    dimDashboard(w, h)
+    local ok, err = pcall(drawInfoPanel, widget, w, h)
+    if not ok then
+      if isInstructionBudgetError(err) then
+        widget.dashboardPaintRetryPending = true
+        requestPaint(widget)
+        return
+      end
+      print("[dashboard] info panel paint failed: " .. tostring(err))
+      setInfoPanelVisible(widget, false)
+    end
+  end
+  -- Last, so the armed bar stays on top of the info panel and the toolbar dim.
+  drawArmedWarning(widget, w, h)
+  drawFooterAlert(widget, w, h)
+end
+
+local function consumeTouchEvents()
+  if not system or not system.killEvents then return end
+  if TOUCH_START then system.killEvents(TOUCH_START) end
+  if TOUCH_MOVE then system.killEvents(TOUCH_MOVE) end
+  if TOUCH_END then system.killEvents(TOUCH_END) end
+end
+
+local function event(widget, category, value, x, y)
+  if widget.gestureConsumeUntilTouchEnd and category == EVT_TOUCH then
+    local now = clock()
+    local staleConsume = widget.gestureConsumeStartedAt > 0 and (now - widget.gestureConsumeStartedAt) >= GESTURE_CONSUME_TIMEOUT
+    if value == TOUCH_START or staleConsume then
+      widget.gestureConsumeUntilTouchEnd = false
+      widget.gestureActive = false
+      widget.gestureTriggered = false
+      widget.gestureConsumeStartedAt = 0
+    else
+      consumeTouchEvents()
+      if value == TOUCH_END then
+        widget.gestureConsumeUntilTouchEnd = false
+        widget.gestureActive = false
+        widget.gestureTriggered = false
+        widget.gestureConsumeStartedAt = 0
+      end
+      return true
+    end
+  end
+
+  if widget.batteryPicker then
+    return batteryPickerEvent(widget, category, value, x, y)
+  end
+
+  if category == EVT_KEY and value == KEY_PAGE_LONG and lcd.hasFocus() then
+    setToolbarVisible(widget, true)
+    invalidateWidget(widget)
+    system.killEvents(value)
+    return true
+  end
+
+  if widget.toolbarVisible and category == EVT_KEY and lcd.hasFocus() then
+    local count = #TOOLBAR_ITEMS
+    local idx = widget.selectedToolbarIndex or 1
+    if value == ROTARY_LEFT then
+      idx = idx - 1
+      if idx < 1 then idx = count end
+      widget.selectedToolbarIndex = idx
+      widget.toolbarLastActive = clock()
+      requestPaint(widget)
+      invalidateWidget(widget)
+      return true
+    elseif value == KEY_ROTARY_RIGHT then
+      idx = idx + 1
+      if idx > count then idx = 1 end
+      widget.selectedToolbarIndex = idx
+      widget.toolbarLastActive = clock()
+      requestPaint(widget)
+      invalidateWidget(widget)
+      return true
+    elseif value == KEY_ENTER_BREAK then
+      local item = TOOLBAR_ITEMS[idx]
+      widget.toolbarLastActive = clock()
+      if activateToolbarItem(widget, item) then return true end
+      requestPaint(widget)
+      invalidateWidget(widget)
+      return true
+    elseif value == KEY_DOWN_BREAK then
+      setToolbarVisible(widget, false)
+      invalidateWidget(widget)
+      return true
+    end
+  end
+
+  if widget.infoPanelVisible and category == EVT_KEY and lcd.hasFocus()
+      and (value == KEY_EXIT_BREAK or value == KEY_RTN_BREAK or value == KEY_ENTER_BREAK) then
+    setInfoPanelVisible(widget, false)
+    invalidateWidget(widget)
+    system.killEvents(value)
+    return true
+  end
+
+  if widget.toolbarVisible and category == EVT_TOUCH and (value == TOUCH_START or value == TOUCH_END) and x and y then
+    for idx, rect in ipairs(widget.toolbarRects or {}) do
+      if x >= rect.x and x < rect.x + rect.w and y >= rect.y and y < rect.y + rect.h then
+        widget.selectedToolbarIndex = idx
+        widget.toolbarLastActive = clock()
+        requestPaint(widget)
+        invalidateWidget(widget)
+        if value == TOUCH_END and activateToolbarItem(widget, rect.item) then return true end
+        return true
+      end
+    end
+  end
+
+  if category == EVT_TOUCH and value == TOUCH_START and x and y then
+    widget.gestureActive = true
+    widget.gestureStartX = x
+    widget.gestureStartY = y
+    widget.gestureTriggered = false
+    widget.gestureConsumeStartedAt = 0
+  elseif category == EVT_TOUCH and value == TOUCH_END then
+    -- A swipe that opened or closed something ends in the consume path at
+    -- the top of this function, so reaching here with the panel open is a
+    -- tap: close it.
+    local tapped = widget.infoPanelVisible and not widget.gestureTriggered
+    widget.gestureActive = false
+    widget.gestureTriggered = false
+    widget.gestureConsumeStartedAt = 0
+    if tapped then
+      setInfoPanelVisible(widget, false)
+      invalidateWidget(widget)
+      return true
+    end
+  elseif category == EVT_TOUCH and value == TOUCH_MOVE and x and y then
+    widget.isSliding = true
+    widget.isSlidingStart = clock()
+    if not widget.gestureActive then
+      widget.gestureActive = true
+      widget.gestureStartX = x
+      widget.gestureStartY = y
+      widget.gestureTriggered = false
+    end
+    if not widget.gestureTriggered then
+      local dx = x - (widget.gestureStartX or x)
+      local dy = y - (widget.gestureStartY or y)
+      if math.abs(dx) <= GESTURE_MAX_DX then
+        if dy <= -GESTURE_MIN_DY then
+          widget.gestureTriggered = true
+          widget.gestureConsumeUntilTouchEnd = true
+          widget.gestureConsumeStartedAt = clock()
+          if widget.infoPanelVisible then
+            setInfoPanelVisible(widget, false)
+          else
+            setToolbarVisible(widget, true)
+          end
+          consumeTouchEvents()
+          invalidateWidget(widget)
+          return true
+        elseif dy >= GESTURE_MIN_DY then
+          widget.gestureTriggered = true
+          widget.gestureConsumeUntilTouchEnd = true
+          widget.gestureConsumeStartedAt = clock()
+          if widget.toolbarVisible then
+            setToolbarVisible(widget, false)
+          else
+            setInfoPanelVisible(widget, true)
+          end
+          consumeTouchEvents()
+          invalidateWidget(widget)
+          return true
+        end
+      end
+    end
+  end
+
+  return false
+end
+
+local function wakeup(widget)
+  -- Keep retained session/task/settings subscriptions above the visibility
+  -- guard so state tracking is never gated behind a check that only exists
+  -- to skip expensive per-tick dashboard prep work.
+  if not widget.dashboardSettings then
+    widget.settingsSnapshot = settingsStore.load()
+    widget.dashboardSettings = settingsStore.dashboard(widget.settingsSnapshot)
+    requestPaint(widget)
+  end
+
+  if not widget.handler then
+    widget.handler = function(snapshot)
+      update(widget, snapshot)
+      requestPaint(widget)
+    end
+    bus.subscribe("session.update", widget.handler)
+  end
+
+  if not widget.taskHandler then
+    widget.taskHandler = function(status)
+      status = status or {}
+      local running = status.running == true
+      local protocol = status.protocol
+      -- Tracks staleness, not just "has this ever fired" -- see
+      -- drawBackgroundTaskWarning() below, same reasoning as app/tool.lua's
+      -- own isBackgroundTaskRunning(). "task.status" is retained (see
+      -- lib/bus.lua's header), so a late subscriber's very first callback
+      -- here is a replay of whatever was last published, not necessarily
+      -- fresh -- but background.lua only ever publishes running=true, so
+      -- there's nothing to distinguish "replay of an old true" from "fresh
+      -- true" other than this timestamp, updated every time either way.
+      if running then widget.taskStatusAt = os.clock() end
+      if running ~= widget.taskRunning or protocol ~= widget.taskProtocol then
+        widget.taskRunning = running
+        widget.taskProtocol = protocol
+        requestPaint(widget)
+      end
+    end
+    bus.subscribe("task.status", widget.taskHandler)
+  end
+
+  if not widget.settingsHandler then
+    widget.settingsHandler = function(snapshot)
+      widget.settingsSnapshot = settingsStore.clone(snapshot)
+      widget.dashboardSettings = settingsStore.dashboard(snapshot)
+      loadModelDashboard(widget)
+      requestThemeReload(widget, true)
+    end
+    bus.subscribe("settings.update", widget.settingsHandler)
+  end
+
+  -- Skip the rest -- expensive per-tick prep/paint-adjacent work -- while
+  -- a different screen is actually on the display: either this tool's own
+  -- full-screen app/menu (appRunning) or simply some other Ethos screen
+  -- (lcd.isVisible() false). Matches master's dashboard.wakeup() early
+  -- return; see appRunning's own comment above.
+  if appRunning or not lcd.isVisible() then return end
+  handleDashboardResize(widget)
+
+  if widget.pendingResetFlight then
+    widget.pendingResetFlight = false
+    applyResetFlight(widget)
+  end
+
+  -- Auto-prompt the battery-profile chooser once per connection, matching
+  -- master's own showBatteryTypeStartup behavior -- gated on the Settings
+  -- > General > Integration toggle, and only actually opened when more
+  -- than one profile is configured (a single-profile craft has nothing to
+  -- choose, same as the toolbar's own battery icon staying disabled --
+  -- see isToolbarItemEnabled()'s requiresBatteryProfiles check). Waits for
+  -- widget.batteryConfig to have actually arrived (async, via
+  -- session.update) rather than firing the instant `connected` flips true,
+  -- and latches batteryDialogShown so it only ever fires once per
+  -- connection -- reset on disconnect above.
+  if widget.connected == true
+      and not widget.batteryDialogShown
+      and widget.batteryConfig
+      and settingsStore.batteryProfileStartupEnabled(widget.settingsSnapshot) then
+    widget.batteryDialogShown = true
+    if hasSelectableBatteryProfiles(widget) then
+      chooseBatteryProfile(widget)
+    end
+  end
+
+  -- Poll for a live Ethos OS theme change (switching light/dark, or to a
+  -- different installed theme package) -- nothing else notifies us of this,
+  -- since it doesn't go through rfsuite's own "settings.update" bus event.
+  -- Matches master's dashboard.lua wakeup(), which does the same 0.25s poll.
+  local now = clock()
+  if now >= nextThemeStateCheck then
+    nextThemeStateCheck = now + THEME_STATE_CHECK_INTERVAL
+    local utils = dashboardUtils(true)
+    local currentThemeSignature = utils and utils.getOsThemeSignature and utils.getOsThemeSignature() or nil
+    if currentThemeSignature ~= themeStateSignature then
+      -- The first read is the baseline, not a switch: nothing has loaded yet.
+      local isSwitch = themeStateSignature ~= nil
+      themeStateSignature = currentThemeSignature
+      if isSwitch then requestThemeReload(widget) end
+    end
+  end
+
+  local forcePaintRetry = widget.dashboardPaintRetryPending == true
+  if forcePaintRetry then
+    widget.needsPaint = true
+  end
+
+  if widget.needsPaint then
+    widget.needsPaint = false
+    local prepared = prepareDashboard(widget)
+    if widget.themeReloadPending == true and prepared then finishThemeReload(widget) end
+    if prepared == false then widget.needsPaint = true end
+    if forcePaintRetry then
+      invalidateWidgetGlobal(widget)
+    else
+      invalidateWidget(widget)
+    end
+  end
+
+  if widget.toolbarVisible then
+    local now = clock()
+    if widget.toolbarLastActive == 0 then widget.toolbarLastActive = now end
+    if TOOLBAR_TIMEOUT > 0 and (now - widget.toolbarLastActive) >= TOOLBAR_TIMEOUT then
+      setToolbarVisible(widget, false)
+      invalidateWidget(widget)
+    end
+  end
+
+  if widget.dashboardEverPainted == true then
+    prewarmDashboardState(widget)
+  end
+
+  if widget.eraseActive then
+    local now = clock()
+    readBlackboxSummaryAfterErase(widget)
+    local tick = now - (widget.eraseLastTick or now)
+    widget.eraseLastTick = now
+    widget.eraseWaited = (widget.eraseWaited or 0) + math.min(math.max(tick, 0), ERASE_MAX_TICK_SECONDS)
+    local progress = math.min(95, math.floor((widget.eraseWaited / ERASE_EXPECTED_SECONDS) * 100))
+    if progress > (widget.eraseProgressValue or 0) then
+      widget.eraseProgressValue = progress
+      if widget.eraseDialog and widget.eraseDialog.value then
+        widget.eraseDialog:value(progress)
+      end
+    end
+    if widget.eraseDone or widget.eraseError then
+      finishErase(widget, widget.eraseError == true)
+    elseif widget.eraseWaited > ERASE_TIMEOUT_SECONDS then
+      finishErase(widget, true)
+    end
+  end
+
+  if widget.batteryActive then
+    local now = clock()
+    local elapsed = now - (widget.batteryStartedAt or now)
+    local progress = math.min(95, math.floor((elapsed / 2.0) * 100))
+    if progress > (widget.batteryProgressValue or 0) then
+      widget.batteryProgressValue = progress
+      if widget.batteryDialog and widget.batteryDialog.value then
+        widget.batteryDialog:value(progress)
+      end
+    end
+    if widget.batteryDone or widget.batteryError then
+      finishBatteryProfileWrite(widget, widget.batteryError == true)
+    end
+  end
+
+  if widget.gestureConsumeUntilTouchEnd and widget.gestureConsumeStartedAt > 0 and (clock() - widget.gestureConsumeStartedAt) >= GESTURE_CONSUME_TIMEOUT then
+    widget.gestureConsumeUntilTouchEnd = false
+    widget.gestureActive = false
+    widget.gestureTriggered = false
+    widget.gestureConsumeStartedAt = 0
+  end
+
+  if widget.isSliding and (clock() - (widget.isSlidingStart or 0)) > 1 then
+    widget.isSliding = false
+  end
+end
+
+-- No widget properties: the armed warning is set in Settings > General.
+local function configure(widget)
+end
+
+local function read(widget)
+end
+
+local function write(widget)
+end
+
+local function close(widget)
+  if widget.handler then
+    bus.unsubscribe("session.update", widget.handler)
+    widget.handler = nil
+  end
+  if widget.settingsHandler then
+    bus.unsubscribe("settings.update", widget.settingsHandler)
+    widget.settingsHandler = nil
+  end
+  if widget.taskHandler then
+    bus.unsubscribe("task.status", widget.taskHandler)
+    widget.taskHandler = nil
+  end
+  widget.dashboardPrefsSnapshot = nil
+  widget.dashboardPrefsTheme = nil
+  widget.dashboardPrefsValues = nil
+  resetEraseWait(widget)
+  closeEraseDialog(widget)
+  widget.batteryActive = false
+  widget.batteryDone = false
+  widget.batteryError = false
+  closeBatteryDialog(widget)
+  closeBatteryPicker(widget)
+  clearToolbarMasks(widget)
+  setInfoPanelVisible(widget, false)
+  clearThemeCache()
+end
+
+local widget = {
+  key = "rf2sdh",
+  name = "Rotorflight Dashboard",
+  create = create,
+  paint = paint,
+  wakeup = wakeup,
+  event = event,
+  configure = configure,
+  read = read,
+  write = write,
+  close = close,
+  title = false,
+}
+
+local function init(opts)
+  opts = opts or {}
+  systemToolHandle = opts.systemToolHandle
+  system.registerWidget(widget)
+end
+
+return {init = init}

@@ -65,6 +65,15 @@ RFSuite also supports ActiveLook glasses widgets for compact in-flight telemetry
 
 ----------
 
+## Documentation
+
+- **[Configuration Pages](docs/pages/README.md):** Reference for all 76 configuration and tuning pages, organized by menu domain (*Flight Tuning*, *Setup*, *Tools*, *Logs*, *Settings*). Generated from the menu hierarchy and the page sources, and filled in as changes reach them — see the index for what the 76 means.
+- **[Documentation Overview](docs/README.md):** Directory map, conventions, dashboard theme overviews, and memory lifecycle guides.
+- **[Page Template](docs/_template.md):** Canonical template and frontmatter standard for all configuration pages.
+- **[Scaffold Generator](bin/docs/generate_menu_docs.py):** CLI tool to scaffold, inspect, and verify that every reachable page has a documentation file (`bin/docs/generate_menu_docs.cmd --check`). It checks that a file exists, not that its contents are right.
+
+----------
+
 ## Rotorflight Features
 
 Rotorflight includes a rich feature set, including:
@@ -192,23 +201,14 @@ See `docs/dev-environment.md` for the full developer environment setup guide.
     
 -   Python 3
     
--   Install libraries
+-   Install libraries (optional: the deploy tasks install any that are missing on first run)
     
     ```bash
     python -m pip install -r requirements.txt
     ```
 
--   On Windows, install this package if radio HID control cannot find `hidapi.dll`:
-
-     https://github.com/libusb/hidapi/releases/tag/hidapi-0.15.0
-
-     Simply copy the dll's for your architecture into c:\windows\system32
-
--   On macOS, install the native HID library before installing Python packages:
-
-    ```bash
-    brew install hidapi
-    ```
+    Radio HID control uses the `hidapi` package, which includes the native
+    library, so no separate `hidapi.dll` or `brew install hidapi` is needed.
 
 - Install the VS Code extension `Ethos`
 
@@ -247,14 +247,14 @@ Rotorflight is a community-driven open-source project. You can contribute by:
     
 -   Testing and giving feedback on new versions
     
--   Updating documentation and tutorials on the [Rotorflight Website](https://www.rotorflight.org/)
+-   Updating the [Rotorflight documentation](https://doc.rotorflight.org/contributing/editing-the-docs/)
     
 -   Translating the configurator to other languages
     
 -   Contributing code (fixes, features, enhancements)
     
 
-🔧 See the full [Contributing Guide](https://www.rotorflight.org/docs/Contributing/intro)
+🔧 See the full [Contributing Guide](https://doc.rotorflight.org/contributing/)
 
 ----------
 

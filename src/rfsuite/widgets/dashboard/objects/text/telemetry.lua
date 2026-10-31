@@ -34,11 +34,9 @@
     bgcolor             : color                     -- (Optional) Widget background color (theme fallback if nil)
 ]]
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 local system = system
-
-local floor = math.floor
-local ceil = math.ceil
 
 local render = {}
 
@@ -46,50 +44,21 @@ local utils = rfsuite.widgets.dashboard.utils
 local getParam = utils.getParam
 local resolveThemeColor = utils.resolveThemeColor
 local getPulsingDots = utils.getPulsingDots
+local compileTransform = utils.compileTransform
+local prepareTextLayout = utils.prepareTextLayout
+local paintTextLayout = utils.paintTextLayout
 
-function render.invalidate(box) box._cfg = nil end
-
-function render.dirty(box)
-    if not rfsuite.session.telemetryState then return false end
-    if box._lastDisplayValue == nil then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-    if box._lastDisplayValue ~= box._currentDisplayValue then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-    return false
+function render.invalidate(box)
+    box._cfg = nil
+    box._textLayout = nil
 end
 
-local function compileTransform(t, decimals)
-    local pow = decimals and (10 ^ decimals) or nil
-    local function round(v) return pow and (floor(v * pow + 0.5) / pow) or v end
-
-    if type(t) == "number" then
-        local mul = t
-        return function(v) return round(v * mul) end
-    elseif t == "floor" then
-        return function(v) return floor(v) end
-    elseif t == "ceil" then
-        return function(v) return ceil(v) end
-    elseif t == "round" or t == nil then
-        return function(v) return round(v) end
-    elseif type(t) == "function" then
-        return t
-    else
-        return function(v) return v end
-    end
+function render.dirty(box)
+    return utils.dirtyOnDisplayValueChange(box)
 end
 
 local function ensureCfg(box)
-    local theme_version = (rfsuite and rfsuite.theme and rfsuite.theme.version) or 0
-    local param_version = box._param_version or 0
-    local cfg = box._cfg
-    if (not cfg) or (cfg._theme_version ~= theme_version) or (cfg._param_version ~= param_version) then
-        cfg = {}
-        cfg._theme_version = theme_version
-        cfg._param_version = param_version
+    return utils.ensureCfg(box, function(cfg, box)
         cfg.title = getParam(box, "title")
         cfg.titlepos = getParam(box, "titlepos")
         cfg.titlealign = getParam(box, "titlealign")
@@ -121,10 +90,7 @@ local function ensureCfg(box)
         if cfg.source == "txbatt" then
             cfg._txBattSrc = system.getSource({category = CATEGORY_SYSTEM, member = MAIN_VOLTAGE})
         end
-
-        box._cfg = cfg
-    end
-    return box._cfg
+    end)
 end
 
 function render.wakeup(box)
@@ -132,7 +98,7 @@ function render.wakeup(box)
 
     local telemetry = rfsuite.tasks.telemetry
     local session = rfsuite.session
-    local telemetryActive = session and session.telemetryState and session.isConnected
+    local telemetryActive = session and (session.telemetryState or session.isConnected)
     local inPostflight = (rfsuite.flightmode and rfsuite.flightmode.current == "postflight")
 
     local source = cfg.source
@@ -172,13 +138,13 @@ function render.wakeup(box)
 
     if type(displayValue) == "string" and displayValue:match("^%.+$") then unit = nil end
 
-    if not telemetryActive and not inPostflight then
+    if value == nil and not telemetryActive and not inPostflight then
         box._lastValidValue = nil
         box._lastValidUnit = nil
         box._lastValidTextcolor = nil
     end
 
-    if telemetryActive and value ~= nil then
+    if value ~= nil then
         box._lastValidValue = displayValue
         box._lastValidUnit = unit
         box._lastValidTextcolor = textcolor
@@ -191,13 +157,22 @@ function render.wakeup(box)
 
     box._dyn_textcolor = textcolor
     box._dyn_unit = unit
+
+    if box._dashboardRectW and box._dashboardRectH then
+        local x, y = utils.applyOffset(box._dashboardRectX or 0, box._dashboardRectY or 0, box)
+        local w, h
+        x, y, w, h = utils.boxContentRect(x, y, box._dashboardRectW, box._dashboardRectH, cfg.bgcolor)
+        prepareTextLayout(box, x, y, w, h, cfg.title, cfg.titlepos, cfg.titlealign, cfg.titlefont, cfg.titlespacing, cfg.titlepadding, cfg.titlepaddingleft, cfg.titlepaddingright, cfg.titlepaddingtop, cfg.titlepaddingbottom, box._currentDisplayValue, box._dyn_unit, cfg.font, cfg.valuealign, cfg.valuepadding, cfg.valuepaddingleft, cfg.valuepaddingright, cfg.valuepaddingtop, cfg.valuepaddingbottom)
+    end
 end
 
 function render.paint(x, y, w, h, box)
     x, y = utils.applyOffset(x, y, box)
     local c = box._cfg or {}
 
-    utils.box(x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlecolor, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, box._currentDisplayValue, box._dyn_unit, c.font, c.valuealign, box._dyn_textcolor, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom, c.bgcolor)
+    x, y, w, h = utils.drawBoxBackground(x, y, w, h, c.bgcolor)
+    local layout = prepareTextLayout(box, x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, box._currentDisplayValue, box._dyn_unit, c.font, c.valuealign, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+    paintTextLayout(layout, box._dyn_textcolor, c.titlecolor)
 end
 
 render.scheduler = 0.5

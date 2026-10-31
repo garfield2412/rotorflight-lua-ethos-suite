@@ -30,7 +30,9 @@
     bgcolor             : color                     -- (Optional) Widget background color (theme fallback if nil)
 ]]
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
+local model = model
 
 local render = {}
 
@@ -38,30 +40,21 @@ local utils = rfsuite.widgets.dashboard.utils
 local getParam = utils.getParam
 local resolveThemeColor = utils.resolveThemeColor
 local getPulsingDots = utils.getPulsingDots
+local prepareTextLayout = utils.prepareTextLayout
+local paintTextLayout = utils.paintTextLayout
 
-function render.invalidate(box) box._cfg = nil end
+function render.invalidate(box)
+    box._cfg = nil
+    box._textLayout = nil
+end
 
 function render.dirty(box)
     if not rfsuite.session.telemetryState then return false end
-    if box._lastDisplayValue == nil then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-    if box._lastDisplayValue ~= box._currentDisplayValue then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-    return false
+    return utils.dirtyOnDisplayValueChange(box)
 end
 
 local function ensureCfg(box)
-    local theme_version = (rfsuite and rfsuite.theme and rfsuite.theme.version) or 0
-    local param_version = box._param_version or 0
-    local cfg = box._cfg
-    if (not cfg) or (cfg._theme_version ~= theme_version) or (cfg._param_version ~= param_version) then
-        cfg = {}
-        cfg._theme_version = theme_version
-        cfg._param_version = param_version
+    return utils.ensureCfg(box, function(cfg, box)
         cfg.title = getParam(box, "title")
         cfg.titlepos = getParam(box, "titlepos")
         cfg.titlealign = getParam(box, "titlealign")
@@ -84,9 +77,7 @@ local function ensureCfg(box)
         cfg.bgcolor = resolveThemeColor("bgcolor", getParam(box, "bgcolor"))
         cfg.novalue = getParam(box, "novalue") or "Craftname not set"
         cfg.unit = nil
-        box._cfg = cfg
-    end
-    return box._cfg
+    end)
 end
 
 function render.wakeup(box)
@@ -103,17 +94,37 @@ function render.wakeup(box)
     elseif box._lastValidCraftName then
         displayValue = box._lastValidCraftName
     else
-        displayValue = getPulsingDots(box)
+        -- MSP has never reported a craft name (the FC-side name field is
+        -- simply left blank, not merely slow to arrive) -- fall back to the
+        -- Ethos model's own name rather than leaving this box pinned on
+        -- pulsing dots for the whole session. Same fallback
+        -- themes/danielrc's and themes/helihud's own craftname handling
+        -- already use.
+        local modelName = model and model.name and model.name()
+        if modelName and type(modelName) == "string" and modelName:match("^%s*$") == nil then
+            displayValue = modelName
+        else
+            displayValue = getPulsingDots(box)
+        end
     end
 
     box._currentDisplayValue = displayValue
+
+    if box._dashboardRectW and box._dashboardRectH then
+        local x, y = utils.applyOffset(box._dashboardRectX or 0, box._dashboardRectY or 0, box)
+        local w, h
+        x, y, w, h = utils.boxContentRect(x, y, box._dashboardRectW, box._dashboardRectH, cfg.bgcolor)
+        prepareTextLayout(box, x, y, w, h, cfg.title, cfg.titlepos, cfg.titlealign, cfg.titlefont, cfg.titlespacing, cfg.titlepadding, cfg.titlepaddingleft, cfg.titlepaddingright, cfg.titlepaddingtop, cfg.titlepaddingbottom, box._currentDisplayValue, cfg.unit, cfg.font, cfg.valuealign, cfg.valuepadding, cfg.valuepaddingleft, cfg.valuepaddingright, cfg.valuepaddingtop, cfg.valuepaddingbottom)
+    end
 end
 
 function render.paint(x, y, w, h, box)
     x, y = utils.applyOffset(x, y, box)
     local c = box._cfg or {}
 
-    utils.box(x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlecolor, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, box._currentDisplayValue, c.unit, c.font, c.valuealign, c.textcolor, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom, c.bgcolor)
+    x, y, w, h = utils.drawBoxBackground(x, y, w, h, c.bgcolor)
+    local layout = prepareTextLayout(box, x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, box._currentDisplayValue, c.unit, c.font, c.valuealign, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+    paintTextLayout(layout, c.textcolor, c.titlecolor)
 end
 
 render.scheduler = 0.5

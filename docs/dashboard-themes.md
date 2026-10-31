@@ -79,6 +79,11 @@ Each theme may implement the following Lua modules:
 * **`preflight.lua`** (optional): returns a layout table for preflight.
 * **`inflight.lua`** (optional): returns a layout table for inflight.
 * **`postflight.lua`** (optional): returns a layout table for postflight.
+
+The dashboard tracks five phases, and themes have three layouts. `armed` (armed on the ground, before
+spool-up) draws the `preflight` layout; the armed bar is its warning. `offline` (the link is gone after a
+flight) draws the `postflight` layout with the flight's summary and extremes frozen, until a connection
+returns or the model changes. A theme therefore does not need files of its own for them.
 * **`configure.lua`** (optional): exposes a configuration UI and saves preferences.
 
 Example **`init.lua`**:
@@ -170,6 +175,7 @@ Outputs static or telemetry-based text. Subtypes located in `objects/text/`:
 | `telemetry`  | Telemetry value (`source` required).   | –                 |
 | `apiversion` | Shows Rotorflight API version (auto).  | –                 |
 | `craftname`  | Shows current model name (auto).       | –                 |
+| `escstatus`  | Speed controller health in words, coloured by level (auto). | – |
 | `blackbox`   | Used/total Blackbox storage (auto).    | –                 |
 | `governor`   | Governor state (auto).                 | –                 |
 | `armflags`   | Armed status flags (auto).             | –                 |
@@ -179,15 +185,27 @@ Outputs static or telemetry-based text. Subtypes located in `objects/text/`:
 | `pidrates`   | PID/Rates profile display (auto).      | –                 |
 | `watts`      | Voltage/Current => Power (auto).       | –                 |
 
+The min, max and average values these objects show are recorded by the background task while the
+model is in flight, once per tick, whether a dashboard is on screen or not (`lib/flight_stats.lua`).
+Drawing a dashboard does not add samples.
+
+The minimum headspeed and the minimum current are taken only while the rotor is under power, so
+the spool-up and the spool-down do not set them: with the flight controller's governor state, after
+2 s in ACTIVE or BYPASS; without it, after the head has turned at 100 rpm or more and been driven
+(throttle at 25 % or more, or current at 1.5 A or more) for 2 s, from the readings of 2 s earlier.
+Until then these two minima read `--`. The maxima and all other values cover the whole flight.
+
 **Common Parameters:**
 
 * `value` (for `text` subtype)
-* `source`, `decimals`, `unit`, `font`, `textcolor`, `title`, `titlefont`, `titlecolor`, `align`, `padding`, `novalue`, `transform`.
+* `source`: Telemetry field name (e.g., `"volt"`, `"current"`, `"rpm"`, `"smartfuel"`, `"watts"`, `"esc_load"`). For `"esc_load"`, it displays the current as a percentage of the speed controller's own limit (reads `--` until a limit is configured).
+* `decimals`, `unit`, `font`, `textcolor`, `title`, `titlefont`, `titlecolor`, `align`, `padding`, `novalue`, `transform`.
 
 **Example:**
 
 ```lua
 { type = "text", subtype = "telemetry", source = "volt", title = "VOLTAGE", unit = "V" }
+{ type = "text", subtype = "telemetry", source = "esc_load", title = "ESC LOAD", unit = "%" }
 ```
 
 ### 4.2 Gauge (`type = "gauge")`
@@ -199,6 +217,10 @@ Bar, ring, and arc gauges under `objects/gauge/`:
 | `bar`     | Bar gauge  | `gaugemin`, `gaugemax`, `gaugeorientation`, `thresholds`, `battery`, `batterysegments` |
 | `ring`    | Ring gauge | Circular ring with fill `%`                                                            |
 | `arc`     | Arc gauge  | `startAngle`, `sweep`, `arcThickness`, `arcColor`, `arcBgColor`, `thresholds`          |
+
+A `bar` whose `source` drops out **before the flight** shows the loading dots (`.`, `..`, `...`), not its last value: on the bench a bar frozen at 85% is a wrong number, and the pilot has to see that the source is gone (#2534).
+
+Once a flight is under way the last reading is **held**, in flight as well as in postflight. A momentary telemetry gap -- one missed appId, one dropped frame behind an obstacle -- must not blank a gauge the pilot is flying on, and must not discard the reading it had. A disconnect after take-off counts as offline (`lib/flight_stats.lua`), so the reading is held while the link is away. When the link returns, the phase starts over at preflight.
 
 **Shared Gauge Parameters:**
 
@@ -314,10 +336,23 @@ end }
 ## 6. Tips & Best Practices
 
 * **Responsive Layout:** prefer percent-based (`*_pct`) for cross-resolution.
-* **Performance:** minimize heavy custom `func` paint logic.
+* **Performance:** minimize heavy custom `func` paint logic. Ethos stops any Lua callback that runs 20000 instructions ("Max instructions count reached"); the dashboard then finishes the frame on the next tick, so the pilot sees a stalled or partial frame. A full paint costs roughly 2.5k fixed plus ~300 per box (more on the first paint after a connect, when every box is being set up), so a page past about 35 boxes runs close to the limit -- `kevd`'s postflight page, with 36, is the densest shipped. Check a new or changed theme with `lua5.4 bin/perf/measure_dashboard_instructions.lua <theme> <state>` (add a tick number to see where the instructions go); `bin/perf/verify_instruction_budget.lua` runs every theme in CI and fails any callback at or over the limit.
 * **Modularity:** reuse objects in `objects/`; contribute new subtypes by adding `.lua` in the appropriate folder.
 * **Defaults:** omit fields to pick theme or object defaults.
 
 ---
 
 *This guide reflects the latest objects library (2024–2025) and should serve as the definitive reference for dashboard theme development.*
+
+## Bastion
+
+Bastion is a graphite and cyan dashboard theme designed for the X20 Pro
+(800×480). It requires at least 784×294 pixels and is hidden in both theme
+pickers on smaller screens, including 480×320 and 472×191 radios.
+
+Select it under *System → Settings → Dashboard → Themes*, and configure its
+instrument limits under *System → Settings → Dashboard → Settings*. The saved
+selection is `system/bastion`; instrument thresholds use the `dashboard.bastion`
+section of `SCRIPTS:/rfsuite.user/settings.ini`.
+
+See the [complete theme guide](dashboard/bastion.md) and its three phase previews.

@@ -44,10 +44,8 @@ The widget only displays stat values (not live telemetry). "source" and "stattyp
 To display min stats, set stattype = "min"; for max, omit or set stattype = "max".
 ]]
 
-local rfsuite = require("rfsuite")
-
-local floor = math.floor
-local ceil = math.ceil
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 
 local render = {}
 
@@ -55,41 +53,13 @@ local utils = rfsuite.widgets.dashboard.utils
 local getParam = utils.getParam
 local resolveThemeColor = utils.resolveThemeColor
 local getPulsingDots = utils.getPulsingDots
+local compileTransform = utils.compileTransform
+local prepareTextLayout = utils.prepareTextLayout
+local paintTextLayout = utils.paintTextLayout
 local lastDisplayValue = nil
 
 function render.dirty(box)
-
-    if box._lastDisplayValue == nil then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-
-    if box._lastDisplayValue ~= box._currentDisplayValue then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-
-    return false
-end
-
-local function compileTransform(t, decimals)
-    local pow = decimals and (10 ^ decimals) or nil
-    local function round(v) return pow and (floor(v * pow + 0.5) / pow) or v end
-
-    if type(t) == "number" then
-        local mul = t
-        return function(v) return round(v * mul) end
-    elseif t == "floor" then
-        return function(v) return floor(v) end
-    elseif t == "ceil" then
-        return function(v) return ceil(v) end
-    elseif t == "round" or t == nil then
-        return function(v) return round(v) end
-    elseif type(t) == "function" then
-        return t
-    else
-        return function(v) return v end
-    end
+    return utils.dirtyOnDisplayValueChange(box)
 end
 
 function render.wakeup(box)
@@ -205,13 +175,22 @@ function render.wakeup(box)
     c.valuepaddingtop = cfg.valuepaddingtop
     c.valuepaddingbottom = cfg.valuepaddingbottom
     c.bgcolor = cfg.bgcolor
+
+    if box._dashboardRectW and box._dashboardRectH then
+        local px, py = utils.applyOffset(box._dashboardRectX or 0, box._dashboardRectY or 0, box)
+        local pw, ph
+        px, py, pw, ph = utils.boxContentRect(px, py, box._dashboardRectW, box._dashboardRectH, c.bgcolor)
+        prepareTextLayout(box, px, py, pw, ph, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, c.displayValue, c.unit, c.font, c.valuealign, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+    end
 end
 
 function render.paint(x, y, w, h, box)
     x, y = utils.applyOffset(x, y, box)
     local c = box._cache or {}
 
-    utils.box(x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlecolor, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, c.displayValue, c.unit, c.font, c.valuealign, c.textcolor, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom, c.bgcolor)
+    x, y, w, h = utils.drawBoxBackground(x, y, w, h, c.bgcolor)
+    local layout = prepareTextLayout(box, x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, c.displayValue, c.unit, c.font, c.valuealign, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+    paintTextLayout(layout, c.textcolor, c.titlecolor)
 end
 
 return render

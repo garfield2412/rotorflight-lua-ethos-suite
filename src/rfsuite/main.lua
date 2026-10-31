@@ -1,462 +1,149 @@
 --[[
-  Copyright (C) 2025 Rotorflight Project
-  GPLv3 — https://www.gnu.org/licenses/gpl-3.0.en.html
+  Copyright (C) 2026 Rotorflight Project
+  GPLv3 -- https://www.gnu.org/licenses/gpl-3.0.en.html
+
+  Entry point. This file is intentionally thin: it loads and initialises
+  three completely independent subsystems and does nothing else. There is
+  no shared `rfsuite` table, no `package.loaded.rfsuite` global, and this
+  file never touches the internals of app/, widgets/, or tasks/.
+
+    app/     - the system tool      (system.registerSystemTool)
+    widgets/ - dashboard/ActiveLook (system.registerWidget/registerGlassesWidget)
+    tasks/   - the background task  (system.registerTask)
+
+  Each owns its own private state via closures. The only thing they are
+  allowed to share is lib/bus.lua, a minimal publish/subscribe channel --
+  never direct table access.
+
+  All three subsystems register direct callbacks eagerly. This costs more
+  startup RAM than lazy proxies, but avoids retained-RAM growth observed on
+  device with the lazy callback layer.
 ]] --
 
-local rfsuite = {session = {}}
-package.loaded.rfsuite = rfsuite
+-- Measures wall time from the moment Ethos starts running this file to the
+-- moment every subsystem's init() has returned -- i.e. the eager loadfile()
+-- chain rooted at the three requires below (background.lua/tool.lua/
+-- dashboard.lua each transitively loadfile() their own dependencies at
+-- module-load time, before init() is even called) plus each subsystem's own
+-- registration work. Answers "does the eager-load disk IO actually cost
+-- anything perceptible" with a real number instead of a guess -- see the
+-- eager-vs-lazy tradeoff noted below. Printed once, unconditionally: this
+-- runs a single time per app lifetime, not per tick, so the cost of the
+-- print itself is noise.
+local bootStartAt = os.clock()
 
-local _ENV = setmetatable({rfsuite = rfsuite}, {__index = _G, __newindex = function(_, k) print("attempt to create global '" .. tostring(k) .. "'", 2) end})
-
-if not FONT_STD then FONT_STD = FONT_STD end
-
--- LuaFormatter off
-local config = {
-    toolName = "Rotorflight",
-    icon = lcd.loadMask("app/gfx/icon.png"),
-    icon_logtool = lcd.loadMask("app/gfx/icon_logtool.png"),
-    icon_unsupported = lcd.loadMask("app/gfx/unsupported.png"),
-    version = {major = 2, minor = 3, revision = 0, suffix = "20251111"},
-    ethosVersion = {1, 6, 2},
-    supportedMspApiVersion = {"12.07", "12.08", "12.09", "12.10"},
-    baseDir = "rfsuite",
-    preferences = "rfsuite.user",
-    defaultRateProfile = 6,   -- default, may be overridden in onconnect/tasks/rateprofile.lua
-    watchdogParam = 10,
-    msp = {
-        probeProtocol = 1,
-        maxProtocol = 2,
-        allowAutoUpgrade = true,
-        v2MinApiVersion = {12, 0, 9},
-    },
-    mspProtocolVersion = 1,
-    maxModelImageBytes = 350 * 1024 -- 350KB, to prevent OOM crashes on models with very large images
-}
--- LuaFormatter on
-
-config.ethosVersionString = string.format("ETHOS < V%d.%d.%d", table.unpack(config.ethosVersion))
-
-rfsuite.config = config
-
-local performance = {cpuload = 0, freeram = 0, mainStackKB = 0, ramKB = 0, luaRamKB = 0, luaBitmapsRamKB = 0}
-
-rfsuite.performance = performance
-
-rfsuite.ini = assert(loadfile("lib/ini.lua", "t", _ENV))(config)
-
-local userpref_defaults = {
-    general = {
-        iconsize = 2,
-        shortcuts_mixed_in = true,
-        syncname = false,
-        developer_tools = false,
-        gimbalsupression = 0.85,
-        txbatt_type = 0,
-        hs_loader = 0,
-        theme_loader = 1,  
-        save_confirm = true,   
-        save_dirty_only = true,
-        reload_confirm = true,
-        mspstatusdialog = true,
-        dashboard_startup_log_close = 0,
-        save_armed_warning = true,
-        toolbar_timeout = 10,
-        show_battery_profile_startup = true,
-        show_confirmation_dialog = false,
-        show_esc_tools_warning = true
-    },
-    localizations = {
-        temperature_unit = 0,
-        altitude_unit = 0
-    },
-    dashboard = {
-        theme_preflight = "system/default",
-        theme_inflight = "system/default",
-        theme_postflight = "system/default"
-    },
-    activelook = {
-        offset_x = 0,
-        offset_y = 0,
-        layout_preflight = "stacked_three",
-        layout_inflight = "one_top_two_bottom",
-        layout_postflight = "two_top_two_bottom",
-        preflight_1 = "governor",
-        preflight_2 = "armed",
-        preflight_3 = "flightmode",
-        preflight_4 = "off",
-        inflight_1 = "current",
-        inflight_2 = "voltage",
-        inflight_3 = "fuel",
-        inflight_4 = "timer",
-        postflight_1 = "current",
-        postflight_2 = "voltage",
-        postflight_3 = "fuel",
-        postflight_4 = "timer"
-    },
-    events = {
-        armflags = true,
-        voltage = true,
-        governor = true,
-        pid_profile = true,
-        rate_profile = true,
-        esc_temp = false,
-        escalertvalue = 90,
-        smartfuel = true,
-        smartfuelcallout = 0,
-        smartfuelrepeats = 1,
-        smartfuelhaptic = false,
-        battery_profile = true,
-        adj_v = false,
-        adj_f = false,
-        otherSoundCfg = true,
-        otherModelAnnounce = false
-    },
-    switches = {},
-    developer = {
-        loglevel = "off",
-        logmsp = false,
-        logobjprof = false,
-        logmspQueue = false,
-        logevents = false,
-        memstats = false,
-        logcachestats = false,
-        taskprofiler = false,
-        mspexpbytes = 8,
-        apiversion = 2,
-        tailmode_override = 0,
-        escprotocol_override = 0,
-        overlaystats = false,
-        overlaygrid = false,
-        overlaystatsadmin = false,
-        debugmalloc = false
-    },
-    timer = {
-        timeraudioenable = false,
-        elapsedalertmode = 0,
-        prealerton = false,
-        postalerton = false,
-        prealertinterval = 10,
-        prealertperiod = 30,
-        postalertinterval = 10,
-        postalertperiod = 30
-    },
-    shortcuts = {},
-    menulastselected = {}
-}
-
-local prefs_dir = "SCRIPTS:/" .. rfsuite.config.preferences
-os.mkdir(prefs_dir)
-local userpref_file = prefs_dir .. "/preferences.ini"
-
-local master_ini = rfsuite.ini.load_ini_file(userpref_file) or {}
-local updated_ini = rfsuite.ini.merge_ini_tables(master_ini, userpref_defaults)
-rfsuite.preferences = updated_ini
-
--- Migrate legacy developer.mspstatusdialog to general.mspstatusdialog if present
-if rfsuite.preferences then
-    local gen = rfsuite.preferences.general
-    local dev = rfsuite.preferences.developer
-    if gen and gen.mspstatusdialog == nil and dev and dev.mspstatusdialog ~= nil then
-        gen.mspstatusdialog = dev.mspstatusdialog
-    end
-    if gen and gen.elrs_sync_mode ~= nil then
-        gen.elrs_sync_mode = nil
-    end
+-- Per-component timing, reported alongside the overall total below. Each
+-- entry is [label, seconds]; printed in the order recorded so the eager
+-- loadfile() cost (module-load time) and the init() cost (registration
+-- work) are visible separately per subsystem, not just as one combined
+-- number.
+local bootSteps = {}
+local function mark(label, startedAt)
+  bootSteps[#bootSteps + 1] = {label, os.clock() - startedAt}
 end
 
-if not rfsuite.ini.ini_tables_equal(master_ini, updated_ini) then rfsuite.ini.save_ini_file(userpref_file, updated_ini) end
+-- Parsed by bin/package/build_package.py (MAIN_VERSION_RE/MAIN_SUFFIX_RE) to
+-- derive the packaged manifest version; the suffix segment is rewritten
+-- per-build. The literal name/shape of this table is load-bearing for that
+-- regex. Keep this in sync with lib/build_info.lua's runtime-visible copy.
+local version = {major = 2, minor = 3, revision = 1, suffix = ""}
 
-if system.getVersion and system.getVersion().simulation then
-    local dev = rfsuite.preferences.developer
-    if dev and simulator and type(simulator.setDebug) == "function" then
-        simulator.setDebug("malloc", dev.debugmalloc == true)
-    end
-end
+local t0 = os.clock()
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local background_task = requireModule("tasks/background.lua")
+mark("tasks/background.lua load", t0)
 
-rfsuite.config.bgTaskName = rfsuite.config.toolName .. " [Background]"
-rfsuite.config.bgTaskKey = "rf2bg"
+t0 = os.clock()
+local system_tool = requireModule("app/tool.lua")
+mark("app/tool.lua load", t0)
 
-rfsuite.utils = assert(loadfile("lib/utils.lua"))(rfsuite.config)
-rfsuite.ethos_events = assert(loadfile("lib/ethos_events.lua", "t", _ENV))()
+t0 = os.clock()
+local dashboard_widget = requireModule("widgets/dashboard.lua")
+mark("widgets/dashboard.lua load", t0)
 
-local function createLazyAppProxy()
-    local loadedModule = nil
+local activelook_widget = nil
 
-    local function ensureAppModule()
-        if loadedModule ~= nil then
-            return loadedModule
-        end
+-- The incremental collector's pause, as a percentage of the live heap. A
+-- collection cycle starts once the heap has reached live * pause / 100, so the
+-- default (200 in both 5.3 and 5.4) lets the heap grow to twice what is live
+-- before anything is reclaimed at all. Ethos kills a script whose Lua heap
+-- passes its limit (#2295, "Lua has used too much RAM, it has been Killed"), so
+-- a pause tuned for a general-purpose host starts collecting at a point the
+-- radio has already given up by. 120 cuts the permitted excess from 100% of
+-- live down to 20% of live.
+--
+-- THE VALUE IS A STARTING POINT, NOT A MEASURED ONE. Nothing in this
+-- repository states Ethos's Lua heap limit, so there is no number here to
+-- derive a pause from, and no on-device run yet measures what a lower pause
+-- costs the background task's instruction budget (tasks/engine.lua). What makes
+-- this worth trying anyway is that it is one line to change and one line to
+-- revert -- see docs/memory-and-module-lifecycle.md section 9.4 for the
+-- measurement that decides it, which needs no code at all.
+--
+-- setstepmul is deliberately NOT touched. It is the second knob and it trades
+-- collector throughput against step size; there is no measurement showing
+-- jitter that it would fix here, so changing it would be a guess in the other
+-- direction.
+local GC_PAUSE_PERCENT = 120
 
-        loadedModule = assert(loadfile("app/app.lua"))(rfsuite.config)
-        rfsuite.app = loadedModule
-        return loadedModule
-    end
-
-    local proxy = {}
-    setmetatable(proxy, {
-        __index = function(_, key)
-            local mod = loadedModule
-            if mod then
-                return mod[key]
-            end
-
-            if key == "guiIsRunning" or key == "escPowerCycleLoader" then
-                return false
-            end
-            if key == "tasks" or key == "triggers" or key == "ui" or key == "Page" or key == "formFields" then
-                return nil
-            end
-
-            return ensureAppModule()[key]
-        end,
-        __newindex = function(_, key, value)
-            ensureAppModule()[key] = value
-        end
-    })
-
-    local function callAppMethod(method, ...)
-        local mod = ensureAppModule()
-        local fn = mod and mod[method]
-        if type(fn) == "function" then
-            return fn(...)
-        end
-    end
-
-    return proxy, callAppMethod
-end
-
-local callAppMethod
-rfsuite.app, callAppMethod = createLazyAppProxy()
-
-rfsuite.tasks = assert(loadfile("tasks/tasks.lua"))(rfsuite.config)
-
-rfsuite.flightmode = {current = "preflight"}
-rfsuite.utils.session()
-
-rfsuite.simevent = {telemetry_state = true}
-
-rfsuite.sysIndex = {}
-
-function rfsuite.version()
-    local v = rfsuite.config.version
-    return {version = string.format("%d.%d.%d-%s", v.major, v.minor, v.revision, v.suffix), major = v.major, minor = v.minor, revision = v.revision, suffix = v.suffix}
-end
-
-local function unsupported_tool()
-    return {
-        name = rfsuite.config.toolName,
-        icon = rfsuite.config.icon_unsupported,
-        create = function() end,
-        wakeup = function() lcd.invalidate() end,
-        paint = function()
-            local w, h = lcd.getWindowSize()
-            lcd.color(lcd.RGB(255, 255, 255, 1))
-            lcd.font(FONT_STD)
-            local msg = rfsuite.config.ethosVersionString
-            local tw, th = lcd.getTextSize(msg)
-            lcd.drawText((w - tw) / 2, (h - th) / 2, msg)
-        end,
-        close = function() end
-    }
-end
-
-local function unsupported_i18n()
-    return {
-        name = rfsuite.config.toolName,
-        icon = rfsuite.config.icon_unsupported,
-        create = function() end,
-        wakeup = function() lcd.invalidate() end,
-        paint = function()
-            local w, h = lcd.getWindowSize()
-            lcd.color(lcd.RGB(255, 255, 255, 1))
-            lcd.font(FONT_STD)
-            local msg = "i18n not compiled - download a release version"
-            local tw, th = lcd.getTextSize(msg)
-            lcd.drawText((w - tw) / 2, (h - th) / 2, msg)
-        end,
-        close = function() end
-    }
-end
-
-local function register_main_tool()
-    rfsuite.sysIndex['app'] = system.registerSystemTool({
-        name   = rfsuite.config.toolName,
-        icon   = rfsuite.config.icon,
-        event  = function(...) return callAppMethod("event", ...) end,
-        create = function(...) return callAppMethod("create", ...) end,
-        wakeup = function(...) return callAppMethod("wakeup", ...) end,
-        paint  = function(...) return callAppMethod("paint", ...) end,
-        close  = function(...) return callAppMethod("close", ...) end
-    })
-end
-
-local function register_bg_task()
-    rfsuite.sysIndex['task'] = system.registerTask({
-        name  = rfsuite.config.bgTaskName,
-        key   = rfsuite.config.bgTaskKey,
-        wakeup = rfsuite.tasks.wakeup,
-        event = rfsuite.tasks.event,
-        init  = rfsuite.tasks.init,
-        done = rfsuite.tasks.done,
-        read  = rfsuite.tasks.read,
-        write = rfsuite.tasks.write
-    })
-end
-
-local function createLazyWidgetProxy(path)
-    local loadedModule = nil
-    local loadFailed = false
-
-    local function ensureWidgetModule()
-        if loadedModule ~= nil then
-            return loadedModule
-        end
-        if loadFailed then
-            return nil
-        end
-
-        local wchunk, err = loadfile(path)
-        if not wchunk then
-            rfsuite.utils.log("[widgets] failed to load widget: " .. path .. " (" .. tostring(err) .. ")", "info")
-            loadFailed = true
-            return nil
-        end
-
-        local ok, scriptModule = pcall(wchunk, config)
-        if not ok then
-            rfsuite.utils.log("[widgets] widget errored while loading: " .. path .. " (" .. tostring(scriptModule) .. ")", "info")
-            loadFailed = true
-            return nil
-        end
-
-        if type(scriptModule) ~= "table" then
-            rfsuite.utils.log("[widgets] widget did not return a module table: " .. path, "info")
-            loadFailed = true
-            return nil
-        end
-
-        loadedModule = scriptModule
-        return loadedModule
-    end
-
-    local proxy = {}
-    proxy.__isLoaded = function()
-        return loadedModule ~= nil
-    end
-    proxy.__callIfLoaded = function(method, ...)
-        local mod = loadedModule
-        local fn = mod and mod[method]
-        if type(fn) == "function" then
-            return fn(...)
-        end
-    end
-    setmetatable(proxy, {
-        __index = function(_, key)
-            local mod = ensureWidgetModule()
-            if mod then return mod[key] end
-        end,
-        __newindex = function(_, key, value)
-            local mod = ensureWidgetModule()
-            if mod then mod[key] = value end
-        end
-    })
-
-    local function callWidgetMethod(method, ...)
-        local mod = ensureWidgetModule()
-        local fn = mod and mod[method]
-        if type(fn) == "function" then
-            return fn(...)
-        end
-    end
-
-    return proxy, callWidgetMethod
-end
-
-local function register_widgets()
-    local manifestPath = "widgets/manifest.lua"
-    local widgetList = {}
-
-    local chunk = loadfile(manifestPath)
-    if chunk then
-        local res = chunk()
-        if type(res) == "table" then
-            widgetList = res
-        else
-            rfsuite.utils.log("[widgets] manifest did not return a table", "info")
-        end
-    else
-        rfsuite.utils.log("[widgets] manifest not found or load failed", "info")
-    end
-
-    rfsuite.widgets = {}
-    local dupCount = {}
-
-    for _, v in ipairs(widgetList) do
-        if v.script then
-            local path = "widgets/" .. v.folder .. "/" .. v.script
-            local proxy, callWidgetMethod = createLazyWidgetProxy(path)
-            local base = v.varname or v.script:gsub("%.lua$", "")
-            if rfsuite.widgets[base] then
-                dupCount[base] = (dupCount[base] or 0) + 1
-                base = string.format("%s_dup%02d", base, dupCount[base])
-            end
-            rfsuite.widgets[base] = proxy
-
-            if v.type == "glasses" then
-                -- Register a thin proxy so the widget module is only loaded if used.
-                if system.registerGlassesWidget then
-                    rfsuite.sysIndex['widget_' .. v.folder] = system.registerGlassesWidget({
-                        key = v.key,
-                        name = v.name,
-                        create = function(...) return callWidgetMethod("create", ...) or {} end,
-                        build = function(...) return callWidgetMethod("build", ...) end,
-                        wakeup = function(...) return callWidgetMethod("wakeup", ...) end
-                    })
-                end
-            else
-                -- Keep static registration metadata simple and defer loading the module
-                -- until one of its callbacks is actually invoked by Ethos.
-                rfsuite.sysIndex['widget_' .. v.folder] = system.registerWidget({
-                    name = v.name,
-                    key = v.key,
-                    event = function(...) return callWidgetMethod("event", ...) end,
-                    create = function(...) return callWidgetMethod("create", ...) or {} end,
-                    paint = function(...) return callWidgetMethod("paint", ...) end,
-                    wakeup = function(...) return callWidgetMethod("wakeup", ...) end,
-                    build = function(...) return callWidgetMethod("build", ...) end,
-                    close = function(...) return callWidgetMethod("close", ...) end,
-                    configure = function(...) return callWidgetMethod("configure", ...) end,
-                    read = function(...) return callWidgetMethod("read", ...) end,
-                    write = function(...) return callWidgetMethod("write", ...) end,
-                    persistent = false,
-                    menu = function(...) return callWidgetMethod("menu", ...) end,
-                    title = false
-                })
-            end
-        end
-    end
+-- Applies GC_PAUSE_PERCENT and reports what was applied.
+--
+-- `collectgarbage("setpause", n)` returns the PREVIOUS value, and with the
+-- argument omitted it does not read the current one -- it sets the pause to 0.
+-- Pause 0 is "collect as constantly as possible", the opposite of what this is
+-- for, and the Lua 5.3.6 in this checkout does exactly that
+-- (bin/gc_pause/verify_gc_pause.lua pins it). So the applied value is kept here
+-- and printed, never read back.
+--
+-- Guarded because "setpause" is a mode string like any other and a Lua without
+-- it would otherwise abort the boot. A guard that fails says so: a silent one
+-- would leave the log asserting a pause that was never applied.
+local function applyGcPause()
+  local ok, err = pcall(collectgarbage, "setpause", GC_PAUSE_PERCENT)
+  if not ok then
+    print(string.format("[boot] gc: setpause(%d) NOT applied on this Lua: %s",
+      GC_PAUSE_PERCENT, tostring(err)))
+    return false
+  end
+  print(string.format("[boot] gc: pause=%d%% of live heap before a cycle starts (Lua default 200)",
+    GC_PAUSE_PERCENT))
+  return true
 end
 
 local function init()
-    local cfg = rfsuite.config
+  t0 = os.clock()
+  -- Before the three subsystems below, so the collector is already on its own
+  -- schedule while they allocate. What this does NOT cover is the eager
+  -- loadfile() chain at lines 53/57/61: that burst of parsing happens at
+  -- module load, before init() runs, and what it leaves behind is the live code
+  -- that no pause setting makes smaller. That is also why this is a creep
+  -- measure and not a boot-peak measure.
+  applyGcPause()
+  mark("gc.setpause", t0)
 
-    if not rfsuite.utils.ethosVersionAtLeast() then
-        system.registerSystemTool(unsupported_tool())
-        return
-    end
+  t0 = os.clock()
+  background_task.init()
+  mark("background_task.init", t0)
 
-    local isCompiledCheck = "@i18n(iscompiledcheck)@"
-    if isCompiledCheck ~= "true" and isCompiledCheck ~= "eurt" then
-        system.registerSystemTool(unsupported_i18n())
-    else
-        register_main_tool()
-    end
+  t0 = os.clock()
+  local systemToolHandle = system_tool.init()
+  mark("system_tool.init", t0)
 
-    -- register background task
-    register_bg_task()
+  t0 = os.clock()
+  dashboard_widget.init({systemToolHandle = systemToolHandle})
+  mark("dashboard_widget.init", t0)
 
-    -- register widgets
-    register_widgets()
+  if system.registerGlassesWidget then
+    t0 = os.clock()
+    activelook_widget = requireModule("widgets/activelook.lua")
+    activelook_widget.init()
+    mark("activelook_widget load+init", t0)
+  end
+
+  for _, step in ipairs(bootSteps) do
+    print(string.format("[boot] %s: %.3fs", step[1], step[2]))
+  end
+  print(string.format("[boot] main.lua load+init: %.3fs", os.clock() - bootStartAt))
 end
 
 return {init = init}

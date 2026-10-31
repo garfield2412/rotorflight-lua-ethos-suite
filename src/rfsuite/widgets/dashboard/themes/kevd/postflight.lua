@@ -3,7 +3,8 @@
   GPLv3 — https://www.gnu.org/licenses/gpl-3.0.en.html
 ]] --
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 local lcd = lcd
 
 local floor = math.floor
@@ -21,7 +22,7 @@ local panelBgColor = colorMode.tbbgcolor or colorMode.headerbgcolor or pageBgCol
 
 local theme_section = "system/kevd"
 
-local THEME_DEFAULTS = {rpm_min = 0, rpm_max = 5500, bec_min = 6.0, bec_warn = 7.0, bec_max = 12.0, esctemp_warn = 110, esctemp_max = 140}
+local THEME_DEFAULTS = {rpm_min = 0, rpm_max = 5500, bec_min = 6.0, bec_warn = 7.0, bec_max = 12.0}
 
 local function estimateCellCountFromVoltage(voltage)
     voltage = tonumber(voltage) or 0
@@ -147,7 +148,13 @@ end
 local function rightStackPaint(x, y, w, h, box, c)
     c = c or {}
     h = h + (box.rs_heightadjust or 0)
-    utils.drawBoxBackground(x, y, w, h, box.rs_bgstyle)
+    -- Use the inset-adjusted rect drawBoxBackground returns (it applies
+    -- rs_bgstyle's insetleft/insetright/etc.) instead of the raw box rect,
+    -- so the panel's content shrinks in lockstep with its border. Without
+    -- this, widening rs_bgstyle's insetright to add right-edge margin would
+    -- pull the border in while every right-aligned text row below stayed
+    -- anchored to the old (un-inset) right edge, overflowing past it.
+    x, y, w, h = utils.drawBoxBackground(x, y, w, h, box.rs_bgstyle)
 
     local rowH = h / 10
 
@@ -216,6 +223,22 @@ local function getThemeOptionKey(W)
     return utils.getDashboardThemeOptionKey(W)
 end
 
+local function getEscTempThresholds()
+    local warn = getThemeValue("esctemp_warn") or 90
+    local maxTemp = getThemeValue("esctemp_max") or 140
+    return {
+        {value = warn - 1, fillcolor = colorMode.fillcolor},
+        {value = maxTemp - 1, fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)},
+        {value = 10000, fillcolor = colorMode.fillcritcolor}
+    }
+end
+
+local function pageBackgroundPaint()
+    local W, H = lcd.getWindowSize()
+    lcd.color(pageBgColor)
+    lcd.drawFilledRectangle(0, 0, W, H)
+end
+
 local themeOptions = {
     ls_full = {font = "FONT_XL", valuefont = "FONT_L", titlefont = "FONT_STD", titlepaddingtop = 5, thickness = 24, tilefont = "FONT_XXL", tiletitlespacing = 4, tilevaluepaddingtop = 3, tilevaluepaddingbottom = 0, gaugepaddingtop = 7, gaugepaddingbottom = 13},
     ls_std  = {font = "FONT_L", valuefont = "FONT_S", titlefont = "FONT_STD", titlepaddingtop = 2, thickness = 18, tilefont = "FONT_XL", tiletitlespacing = 4, tilevaluepaddingtop = 3, tilevaluepaddingbottom = 0, gaugepaddingtop = 1, gaugepaddingbottom = 10},
@@ -239,7 +262,7 @@ local boxes_cache = nil
 local header_boxes_cache = nil
 local last_txbatt_type = nil
 
-local layout = {cols = 12, rows = 12, padding = 0, bgcolor = panelBgColor}
+local layout = {cols = 12, rows = 12, padding = 0, bgcolor = pageBgColor}
 local screenBorderStyle = {
     enabled = true,
     bordercolor = colorMode.accentcolor or colorMode.rssifillbgcolor,
@@ -248,9 +271,9 @@ local screenBorderStyle = {
 }
 
 local header_layout = utils.standardHeaderLayout(headeropts)
-local topbarShiftY = 4 -- Topbar Y shift: increase to move topbar/header down, decrease to move it up.
+local topbarShiftY = 4
 if header_layout and header_layout.height then
-    header_layout.height = header_layout.height + topbarShiftY -- Adds room so shifted topbar details do not clip.
+    header_layout.height = header_layout.height + topbarShiftY
 end
 
 local function header_boxes()
@@ -262,8 +285,8 @@ local function header_boxes()
 
         local headerBgColor = colorMode.headerbgcolor or colorMode.fillbgcolor or colorMode.bgcolor
         for _, box in ipairs(boxes) do
-            box.bgcolor = headerBgColor -- Matches latest preflight5 topbar background handling.
-            box.offsety = (box.offsety or 0) + topbarShiftY -- Moves topbar item and internal details on the Y axis.
+            box.bgcolor = headerBgColor 
+            box.offsety = (box.offsety or 0) + topbarShiftY 
         end
 
         header_boxes_cache = boxes
@@ -281,12 +304,20 @@ local function buildBoxes(W)
     local governorTitleSpacing = compactWindow and 5 or stackOpts.tiletitlespacing
     local governorTitlePaddingBottom = compactWindow and 0 or 10
     local governorValuePaddingBottom = compactWindow and 0 or 6
+    local gaugeGrow = 10
+    local gaugeShiftUp = 10
+    local gaugeShrinkTop = 5
+    local gaugePaddingTop = opts.gaugepaddingtop
     local gaugePaddingBottom = opts.gaugepaddingbottom + 1
+    local reduceGaugeBottom = min(gaugeGrow, gaugePaddingBottom)
+    local reduceGaugeTop = min(gaugeGrow - reduceGaugeBottom, gaugePaddingTop)
+    local reduceTitleTop = gaugeGrow - reduceGaugeBottom - reduceGaugeTop
+    local barGaugePaddingTop = gaugePaddingTop - reduceGaugeTop - gaugeShiftUp + gaugeShrinkTop
+    local barGaugePaddingBottom = gaugePaddingBottom - reduceGaugeBottom + gaugeShiftUp
+    local barTitlePaddingTop = max(0, opts.titlepaddingtop + 11 - reduceTitleTop)
 
     local gaugeTileBg = {
-        -- Same bordered-tile method used for the working preflight 5-tile borders.
-        -- Border follows the SmartFuel / AdvBatt outline color path.
-        backfillcolor = panelBgColor,
+        backfillcolor = pageBgColor,
         fillcolor = panelBgColor,
         bordercolor = colorMode.accentcolor or colorMode.rssifillbgcolor,
         borderwidth = 5,
@@ -304,14 +335,14 @@ local function buildBoxes(W)
         inset = 4,
         insettop = 11,
         insetleft = -9,
-        insetright = -5,
+        insetright = 20, -- was -5 (which expanded the tile *past* its own box's right edge, right up against the screen edge with no margin); a positive value pulls the tile's right edge inward for real padding
         insetbottom = 8,
         contentpadding = 1
     }
 
     local governorDisarmedTileBg = {
         backfillcolor = colorMode.tbbgcolor or colorMode.headerbgcolor or pageBgColor,
-        fillcolor = lcd.RGB(0x00, 0x00, 0x00),
+        fillcolor = colorMode.tbbgcolor or colorMode.headerbgcolor or pageBgColor, -- was a hardcoded black, which looked fine in dark themes but ignored the OS theme entirely (stood out as a jarring black box against a light theme); match the panel's own fill instead, same as every other tile
         bordercolor = colorMode.fillcritcolor,
         borderwidth = 6,
         roundradius = 6,
@@ -324,34 +355,21 @@ local function buildBoxes(W)
     }
 
     return {
-
-        -- Border underlays for postflight time/status tiles. These use the same
-        -- 5-tile border method and draw before the actual time widgets.
         {
-            col = 1, row = 1, colspan = 8, rowspan = 9,
-            offsetx = 30,
-            type = "text",
-            subtype = "telemetry",
-            source = "__background_only__",
-            title = "",
-            unit = "",
-            font = "FONT_XS",
-            textcolor = panelBgColor,
-            titlecolor = panelBgColor,
-            bgcolor = panelBgColor
+            col = 1, row = 1, colspan = 12, rowspan = 12,
+            type = "func",
+            subtype = "func",
+            paint = pageBackgroundPaint
         },
-
-        -- Border underlays for all postflight telemetry gauges. These draw first,
-        -- and the actual bar gauges are drawn on top with transparent backgrounds.
-        {col = 1, row = 10, colspan = 4, rowspan = 3, offsetx = 30, offsety = -7, type = "text", subtype = "telemetry", source = "altitude", font = "FONT_XXS", valuealign = "left", valuepaddingleft = -200, unit = "", bgcolor = gaugeTileBg, titlecolor = colorMode.bgcolor, textcolor = colorMode.bgcolor},
+        {col = 1, row = 7, colspan = 4, rowspan = 3, offsetx = 30, offsety = -7, type = "text", subtype = "telemetry", source = "altitude", font = "FONT_XXS", valuealign = "left", valuepaddingleft = -200, unit = "", bgcolor = gaugeTileBg, titlecolor = colorMode.bgcolor, textcolor = colorMode.bgcolor},
         {col = 5, row = 10, colspan = 4, rowspan = 3, offsetx = 60, offsety = -7, type = "text", subtype = "telemetry", source = "watts", font = "FONT_XXS", valuealign = "left", valuepaddingleft = -200, unit = "", bgcolor = gaugeTileBg, titlecolor = colorMode.bgcolor, textcolor = colorMode.bgcolor},
         {col = 5, row = 7, colspan = 4, rowspan = 3, offsetx = 60, offsety = -7, type = "text", subtype = "telemetry", source = "current", font = "FONT_XXS", valuealign = "left", valuepaddingleft = -200, unit = "", bgcolor = gaugeTileBg, titlecolor = colorMode.bgcolor, textcolor = colorMode.bgcolor},
         {col = 1, row = 4, colspan = 4, rowspan = 3, offsetx = 30, offsety = -7, type = "text", subtype = "telemetry", source = "rpm", font = "FONT_XXS", valuealign = "left", valuepaddingleft = -200, unit = "", bgcolor = gaugeTileBg, titlecolor = colorMode.bgcolor, textcolor = colorMode.bgcolor},
-        {col = 1, row = 7, colspan = 4, rowspan = 3, offsetx = 30, offsety = -7, type = "text", subtype = "telemetry", source = "link", font = "FONT_XXS", valuealign = "left", valuepaddingleft = -200, unit = "", bgcolor = gaugeTileBg, titlecolor = colorMode.bgcolor, textcolor = colorMode.bgcolor},
+        {col = 1, row = 10, colspan = 4, rowspan = 3, offsetx = 30, offsety = -7, type = "text", subtype = "telemetry", source = "link", font = "FONT_XXS", valuealign = "left", valuepaddingleft = -200, unit = "", bgcolor = gaugeTileBg, titlecolor = colorMode.bgcolor, textcolor = colorMode.bgcolor},
         {col = 5, row = 4, colspan = 4, rowspan = 3, offsetx = 60, offsety = -7, type = "text", subtype = "telemetry", source = "temp_esc", font = "FONT_XXS", valuealign = "left", valuepaddingleft = -200, unit = "", bgcolor = gaugeTileBg, titlecolor = colorMode.bgcolor, textcolor = colorMode.bgcolor},
         {
             col = 11, row = 1, colspan = 2, rowspan = 12,
-            offsetx = -30,
+            offsetx = -30, -- NOTE: currently a no-op -- the shared grid engine only positions boxes via col/row/colspan/rowspan. Right-edge margin is handled by rightStackTileBg's insetright instead.
             offsety = 0,
             type = "func",
             subtype = "func",
@@ -382,7 +400,7 @@ local function buildBoxes(W)
             rs_fuelframethickness = 3,
             rs_fuelfont = "FONT_XXL",
             rs_fuelvaluepaddingleft = 13,
-            rs_fuelvaluepaddingtop = 6,
+            rs_fuelvaluepaddingtop = 31,
             rs_fuelvaluepaddingbottom = -40,
             rs_fuelthresholds = {
                 {value = 25, fillcolor = colorMode.fillcritcolor},
@@ -408,12 +426,9 @@ local function buildBoxes(W)
                 {value = "SPOOLUP", textcolor = colorMode.accentcolor},
                 {value = "RECOVERY", textcolor = colorMode.fillwarncolor},
                 {value = "ACTIVE", textcolor = colorMode.fillcolor},
-                {value = "@i18n(widgets.governor.THR-OFF)@", textcolor = colorMode.fillcritcolor}
+                {value = "@i18n(widgets.governor.THROFF)@", textcolor = colorMode.fillcritcolor}
             }
         },
-        -- =========================================================================
-        -- COLUMN 1: TIME AND ALTITUDE
-        -- =========================================================================
         {
             col = 5, row = 1, colspan = 4, rowspan = 3,
             offsetx = 60,
@@ -453,9 +468,8 @@ local function buildBoxes(W)
             textcolor = colorMode.textcolor,
             transform = "floor"
         },
-        -- MODIFIED: Altitude Max moved here (Col 1, Row 10)
         {
-            col = 1, row = 10, colspan = 4, rowspan = 3,
+            col = 1, row = 7, colspan = 4, rowspan = 3,
             offsetx = 30,
             offsety = -7,
             type = "gauge",
@@ -472,24 +486,24 @@ local function buildBoxes(W)
             font = opts.font,
             titlefont = opts.titlefont,
             titlespacing = opts.tiletitlespacing,
-            titlepaddingtop = opts.titlepaddingtop + 11,
-            -- Keep the actual bar gauge inside the bordered tile underlay.
-            thickness = max(4, opts.thickness - 4),
+            titlepaddingtop = barTitlePaddingTop,
             gaugepadding = 12,
-            gaugepaddingtop = opts.gaugepaddingtop,
-            gaugepaddingbottom = gaugePaddingBottom,
+            gaugepaddingtop = barGaugePaddingTop,
+            gaugepaddingbottom = barGaugePaddingBottom,
             gaugepaddingleft = 13,
             gaugepaddingright = 13,
             bgcolor = "transparent",
             fillcolor = colorMode.fillcolor,
             textcolor = colorMode.textcolor,
             titlecolor = colorMode.titlecolor,
+            thresholds = {
+                {value = 199, fillcolor = colorMode.fillcolor},
+                {value = 350, fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)},
+                {value = 10000, fillcolor = colorMode.fillcritcolor}
+            },
             transform = "floor"
         },
 
-        -- =========================================================================
-        -- COLUMN 2: POWER, CURRENT, RPM, VFR/LINK
-        -- =========================================================================
         {
             col = 5, row = 10, colspan = 4, rowspan = 3,
             offsetx = 60,
@@ -501,25 +515,28 @@ local function buildBoxes(W)
             title = "Max Watts",
             unit = "W",
             min = 0,
-            max = 10000,
+            max = 15000,
             titlepos = "top",
             titlealign = "center",
             valuealign = "center",
             font = opts.font,
             titlefont = opts.titlefont,
             titlespacing = opts.tiletitlespacing,
-            titlepaddingtop = opts.titlepaddingtop + 11,
-            -- Keep the actual bar gauge inside the bordered tile underlay.
-            thickness = max(4, opts.thickness - 4),
+            titlepaddingtop = barTitlePaddingTop,
             gaugepadding = 12,
-            gaugepaddingtop = opts.gaugepaddingtop,
-            gaugepaddingbottom = gaugePaddingBottom,
+            gaugepaddingtop = barGaugePaddingTop,
+            gaugepaddingbottom = barGaugePaddingBottom,
             gaugepaddingleft = 13,
             gaugepaddingright = 13,
             bgcolor = "transparent",
             fillcolor = colorMode.fillcolor,
             textcolor = colorMode.textcolor,
             titlecolor = colorMode.titlecolor,
+            thresholds = {
+                {value = 7000, fillcolor = colorMode.fillcolor},
+                {value = 9000, fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)},
+                {value = 15000, fillcolor = colorMode.fillcritcolor}
+            },
             transform = "floor"
         },
         {
@@ -540,20 +557,23 @@ local function buildBoxes(W)
             font = opts.font,
             titlefont = opts.titlefont,
             titlespacing = opts.tiletitlespacing,
-            titlepaddingtop = opts.titlepaddingtop + 11,
-            -- Keep the actual bar gauge inside the bordered tile underlay.
+            titlepaddingtop = barTitlePaddingTop,
             gaugepadding = 12,
-            gaugepaddingtop = opts.gaugepaddingtop,
-            gaugepaddingbottom = gaugePaddingBottom,
+            gaugepaddingtop = barGaugePaddingTop,
+            gaugepaddingbottom = barGaugePaddingBottom,
             gaugepaddingleft = 13,
             gaugepaddingright = 13,
             bgcolor = "transparent",
             fillcolor = colorMode.fillcolor,
             textcolor = colorMode.textcolor,
             titlecolor = colorMode.titlecolor,
+            thresholds = {
+                {value = 160, fillcolor = colorMode.fillcolor},
+                {value = 199, fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)},
+                {value = 10000, fillcolor = colorMode.fillcritcolor}
+            },
             transform = "floor"
         },
-        -- MODIFIED: RPM Max moved here (Col 5, Row 7)
         {
             col = 1, row = 4, colspan = 4, rowspan = 3,
             offsetx = 30,
@@ -572,12 +592,10 @@ local function buildBoxes(W)
             font = opts.font,
             titlefont = opts.titlefont,
             titlespacing = opts.tiletitlespacing,
-            titlepaddingtop = opts.titlepaddingtop + 11,
-            -- Keep the actual bar gauge inside the bordered tile underlay.
-            thickness = max(4, opts.thickness - 4),
+            titlepaddingtop = barTitlePaddingTop,
             gaugepadding = 12,
-            gaugepaddingtop = opts.gaugepaddingtop,
-            gaugepaddingbottom = gaugePaddingBottom,
+            gaugepaddingtop = barGaugePaddingTop,
+            gaugepaddingbottom = barGaugePaddingBottom,
             gaugepaddingleft = 13,
             gaugepaddingright = 13,
             bgcolor = "transparent",
@@ -587,7 +605,7 @@ local function buildBoxes(W)
             transform = "floor"
         },
         {
-            col = 1, row = 7, colspan = 4, rowspan = 3,
+            col = 1, row = 10, colspan = 4, rowspan = 3,
             offsetx = 30,
             offsety = -7,
             type = "gauge",
@@ -604,12 +622,10 @@ local function buildBoxes(W)
             font = opts.font,
             titlefont = opts.titlefont,
             titlespacing = opts.tiletitlespacing,
-            titlepaddingtop = opts.titlepaddingtop + 11,
-            -- Keep the actual bar gauge inside the bordered tile underlay.
-            thickness = max(4, opts.thickness - 4),
+            titlepaddingtop = barTitlePaddingTop,
             gaugepadding = 12,
-            gaugepaddingtop = opts.gaugepaddingtop,
-            gaugepaddingbottom = gaugePaddingBottom,
+            gaugepaddingtop = barGaugePaddingTop,
+            gaugepaddingbottom = barGaugePaddingBottom,
             gaugepaddingleft = 13,
             gaugepaddingright = 13,
             bgcolor = "transparent",
@@ -617,15 +633,13 @@ local function buildBoxes(W)
             textcolor = colorMode.textcolor,
             titlecolor = colorMode.titlecolor,
             thresholds = {
-                {value = 10, fillcolor = colorMode.fillcritcolor},
-                {value = 45, fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)}
+                {value = 59, fillcolor = colorMode.fillcritcolor},
+                {value = 74, fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)},
+                {value = 100, fillcolor = colorMode.fillcolor}
             },
             transform = "floor"
         },
 
-        -- =========================================================================
-        -- MIDDLE: TEMP
-        -- =========================================================================
         {
             col = 5, row = 4, colspan = 4, rowspan = 3,
             offsetx = 60,
@@ -635,19 +649,16 @@ local function buildBoxes(W)
             source = "temp_esc",
             stattype = "max",
             title = "ESC Max Temp",
-            unit = "°F",
             titlepos = "top",
             titlealign = "center",
             valuealign = "center",
             font = opts.font,
             titlefont = opts.titlefont,
             titlespacing = opts.tiletitlespacing,
-            titlepaddingtop = opts.titlepaddingtop + 11,
-            -- Keep the actual bar gauge inside the bordered tile underlay.
-            thickness = max(4, opts.thickness - 4),
+            titlepaddingtop = barTitlePaddingTop,
             gaugepadding = 12,
-            gaugepaddingtop = opts.gaugepaddingtop,
-            gaugepaddingbottom = gaugePaddingBottom,
+            gaugepaddingtop = barGaugePaddingTop,
+            gaugepaddingbottom = barGaugePaddingBottom,
             gaugepaddingleft = 13,
             gaugepaddingright = 13,
             bgcolor = "transparent",
@@ -655,11 +666,8 @@ local function buildBoxes(W)
             textcolor = colorMode.textcolor,
             titlecolor = colorMode.titlecolor,
             min = 0,
-            max = getThemeValue("esctemp_max"),
-            thresholds = {
-                {value = getThemeValue("esctemp_warn"), fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)},
-                {value = getThemeValue("esctemp_max"), fillcolor = colorMode.fillcritcolor}
-            },
+            max = getThemeValue("esctemp_max") or 140,
+            thresholds = getEscTempThresholds(),
             transform = "floor"
         },
     }

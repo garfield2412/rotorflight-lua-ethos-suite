@@ -3,7 +3,8 @@
   GPLv3 — https://www.gnu.org/licenses/gpl-3.0.en.html
 ]] --
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 local lcd = lcd
 
 local tonumber = tonumber
@@ -40,17 +41,17 @@ end
 
 local themeOptions = {
 
-    ls_full = {font = "FONT_XXL", advfont = "FONT_STD", titlefont = "FONT_XXS", brfont = "FONT_XL", thickness = 32, batteryframethickness = 4, titlepaddingbottom = 25, valuepaddingleft = 25, valuepaddingtop = 20, gvaluepaddingtop = 30, valuepaddingbottom = 25, brvaluepaddingbottom = 20, gaugepaddingtop = 20, battadvpaddingtop = 20, cappaddingright = 4},
+    ls_full = {font = "FONT_XXL", arcfont = "FONT_XXL", advfont = "FONT_STD", titlefont = "FONT_XXS", brfont = "FONT_XL", thickness = 32, batteryframethickness = 4, titlepaddingbottom = 25, valuepaddingleft = 25, valuepaddingtop = 20, gvaluepaddingtop = 30, valuepaddingbottom = 25, brvaluepaddingbottom = 20, gaugepaddingtop = 20, battadvpaddingtop = 20, cappaddingright = 4},
 
-    ls_std = {font = "FONT_XL", advfont = "FONT_STD", titlefont = "FONT_XXS", brfont = "FONT_XL", thickness = 18, batteryframethickness = 3, titlepaddingbottom = 25, valuepaddingleft = 55, valuepaddingtop = 5, gvaluepaddingtop = 20, valuepaddingbottom = 25, brvaluepaddingbottom = 15, gaugepaddingtop = 5, battadvpaddingtop = 8, cappaddingright = 5},
+    ls_std = {font = "FONT_XL", arcfont = "FONT_XL", advfont = "FONT_STD", titlefont = "FONT_XXS", brfont = "FONT_XL", thickness = 18, batteryframethickness = 3, titlepaddingbottom = 25, valuepaddingleft = 55, valuepaddingtop = 5, gvaluepaddingtop = 20, valuepaddingbottom = 25, brvaluepaddingbottom = 15, gaugepaddingtop = 5, battadvpaddingtop = 8, cappaddingright = 5},
 
-    ms_full = {font = "FONT_XXL", advfont = "FONT_STD", titlefont = "FONT_XXS", brfont = "FONT_L", thickness = 19, batteryframethickness = 3, titlepaddingbottom = 20, valuepaddingleft = 20, valuepaddingtop = 10, gvaluepaddingtop = 20, valuepaddingbottom = 25, brvaluepaddingbottom = 8, gaugepaddingtop = 5, battadvpaddingtop = 2, cappaddingright = 2},
+    ms_full = {font = "FONT_XL", arcfont = "FONT_L", advfont = "FONT_STD", titlefont = "FONT_XXS", brfont = "FONT_L", thickness = 19, batteryframethickness = 3, titlepaddingbottom = 20, valuepaddingleft = 20, valuepaddingtop = 10, gvaluepaddingtop = 20, valuepaddingbottom = 25, brvaluepaddingbottom = 8, gaugepaddingtop = 5, battadvpaddingtop = 2, cappaddingright = 2},
 
-    ms_std = {font = "FONT_XL", advfont = "FONT_S", titlefont = "FONT_XXS", brfont = "FONT_L", thickness = 14, batteryframethickness = 2, titlepaddingbottom = 10, valuepaddingleft = 20, valuepaddingtop = 10, gvaluepaddingtop = 20, valuepaddingbottom = 25, brvaluepaddingbottom = 8, gaugepaddingtop = 5, battadvpaddingtop = 3, cappaddingright = 3},
+    ms_std = {font = "FONT_XL", arcfont = "FONT_L", advfont = "FONT_S", titlefont = "FONT_XXS", brfont = "FONT_L", thickness = 14, batteryframethickness = 2, titlepaddingbottom = 10, valuepaddingleft = 20, valuepaddingtop = 10, gvaluepaddingtop = 20, valuepaddingbottom = 25, brvaluepaddingbottom = 8, gaugepaddingtop = 5, battadvpaddingtop = 3, cappaddingright = 3},
 
-    ss_full = {font = "FONT_XL", advfont = "FONT_STD", titlefont = "FONT_XXS", brfont = "FONT_XL", thickness = 25, batteryframethickness = 3, titlepaddingbottom = 15, valuepaddingleft = 20, valuepaddingtop = 10, gvaluepaddingtop = 25, valuepaddingbottom = 15, brvaluepaddingbottom = 15, gaugepaddingtop = 5, battadvpaddingtop = 5, cappaddingright = 3},
+    ss_full = {font = "FONT_XL", arcfont = "FONT_XL", advfont = "FONT_STD", titlefont = "FONT_XXS", brfont = "FONT_XL", thickness = 25, batteryframethickness = 3, titlepaddingbottom = 15, valuepaddingleft = 20, valuepaddingtop = 10, gvaluepaddingtop = 25, valuepaddingbottom = 15, brvaluepaddingbottom = 15, gaugepaddingtop = 5, battadvpaddingtop = 5, cappaddingright = 3},
 
-    ss_std = {font = "FONT_XL", advfont = "FONT_S", titlefont = "FONT_XXS", brfont = "FONT_XL", thickness = 14, batteryframethickness = 2, titlepaddingbottom = 15, valuepaddingleft = 20, valuepaddingtop = 10, gvaluepaddingtop = 15, valuepaddingbottom = 25, brvaluepaddingbottom = 20, gaugepaddingtop = 5, battadvpaddingtop = 0, cappaddingright = 3}
+    ss_std = {font = "FONT_XL", arcfont = "FONT_XL", advfont = "FONT_S", titlefont = "FONT_XXS", brfont = "FONT_XL", thickness = 14, batteryframethickness = 2, titlepaddingbottom = 15, valuepaddingleft = 20, valuepaddingtop = 10, gvaluepaddingtop = 15, valuepaddingbottom = 25, brvaluepaddingbottom = 20, gaugepaddingtop = 5, battadvpaddingtop = 0, cappaddingright = 3}
 }
 
 local lastScreenW = nil
@@ -59,7 +60,7 @@ local header_boxes_cache = nil
 local themeconfig = nil
 local last_txbatt_type = nil
 
-local layout = {cols = 7, rows = 12, padding = 1}
+local layout = {cols = 7, rows = 12, padding = 0}
 
 local header_layout = utils.standardHeaderLayout(headeropts)
 
@@ -157,7 +158,7 @@ local function buildBoxes(W)
             decimals = 1,
             titlepaddingbottom = opts.titlepaddingbottom,
             valuepaddingtop = opts.gvaluepaddingtop,
-            font = opts.font,
+            font = opts.arcfont or opts.font,
             min = getThemeValue("bec_min"),
             max = getThemeValue("bec_max"),
             thickness = opts.thickness,
@@ -193,7 +194,7 @@ local function buildBoxes(W)
             source = "temp_esc",
             title = "@i18n(widgets.dashboard.esc_temp):upper()@",
             titlepos = "bottom",
-            font = opts.font,
+            font = opts.arcfont or opts.font,
             min = 0,
             max = getThemeValue("esctemp_max"),
             thickness = opts.thickness,
@@ -222,7 +223,7 @@ local function buildBoxes(W)
             titlecolor = colorMode.titlecolor,
             thresholds = {
                 {value = "@i18n(widgets.governor.DISARMED)@", textcolor = colorMode.fillcritcolor}, {value = "@i18n(widgets.governor.OFF)@", textcolor = colorMode.fillcritcolor}, {value = "@i18n(widgets.governor.IDLE)@", textcolor = "blue"}, {value = "@i18n(widgets.governor.SPOOLUP)@", textcolor = "blue"}, {value = "@i18n(widgets.governor.RECOVERY)@", textcolor = colorMode.fillwarncolor}, {value = "@i18n(widgets.governor.ACTIVE)@", textcolor = colorMode.fillcolor},
-                {value = "@i18n(widgets.governor.THR-OFF)@", textcolor = colorMode.fillcritcolor}
+                {value = "@i18n(widgets.governor.THROFF)@", textcolor = colorMode.fillcritcolor}
             }
         }
     }

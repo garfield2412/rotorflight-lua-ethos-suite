@@ -1,0 +1,528 @@
+-- Generic tile-grid menu screen: renders a list of entries as icon
+-- buttons, and opens either a leaf page (`script`) or another named
+-- submenu (`menuId`, looked up from a `menus` table) on press.
+--
+-- Mirrors the *shape* of rotorflight-lua-ethos-suite's
+-- app/lib/menu_container.lua + app/lib/submenu_builder.lua + the
+-- return-context-stack half of app/lib/navigation.lua, trimmed to what
+-- this rebuild's still-small menu tree needs: no icon-size preferences,
+-- no ethosversion/apiversion visibility gating, no per-menu hooksScript
+-- overrides, no manifest JSON/codegen step (entries are a
+-- plain Lua table literal in app/tool.lua). `menuId` submenus
+-- (app/tool.lua's "Advanced" tile, matching the original's own
+-- Flight Tuning -> Advanced submenu in app/modules/manifest.lua) are the
+-- first real use of this path -- self-caught bug, found reading this
+-- file rather than live: the menuId press handler's recursive
+-- openScreen() call was missing the setWakeupHandler argument, so
+-- line ~92's unconditional setWakeupHandler(nil) would have crashed
+-- ("attempt to call a nil value") the instant anyone actually opened a
+-- submenu. Fixed before it ever shipped to a submenu tile.
+--
+-- Entries may carry an optional `group` label (e.g. "Flight Tuning"),
+-- rendered as its own line whenever it changes going down the entry
+-- list -- matching the original's home screen, which groups its flat
+-- tile list under section labels the same way (see
+-- app/lib/ui.lua:1596-1605's group-title-line insertion). Entries with
+-- no group render inline with no label, and each new group starts a
+-- fresh tile row, wrapping to further rows within that group once it
+-- fills the screen's width (see numPerRow below).
+--
+-- Tile sizing/count-per-row: the original computes both from per-radio
+-- constants (app/radios.lua) and a pilot `iconsize` preference. This
+-- rebuild keeps the useful per-resolution profiles, chosen only from
+-- the current screen size so every menu on a given radio is consistent.
+--
+-- The *first* group is the exception: rather than a generic screen title
+-- ("Rotorflight") immediately followed by a same-looking group line
+-- right below it, the first group's name becomes the header's own title
+-- -- one line, not two. Only the second and later groups get their own
+-- separate label line. A screen whose first entry has no group falls
+-- back to the plain screen title, unchanged.
+--
+-- Every screen this renders installs its own physical-Back-key handler
+-- via `setEventHandler` (see app/close_key.lua and app/tool.lua,
+-- which is what actually receives Ethos's event() callback and forwards
+-- to whichever handler is currently installed). The root menu installs
+-- one too, not a `nil` -- see the comment at the setEventHandler() call
+-- below for why handing RTN to Ethos's own default there costs an extra
+-- press (#2429).
+--
+-- Every screen also shows the permanent header/"Menu" button row (see
+-- app/header.lua) as row one -- including the root menu, matching the
+-- original's persistent top-right nav button. On-screen "Menu" pops the
+-- stack (or, if it's already empty, calls system.exit() -- there's
+-- nowhere left to go internally, so "Menu" here means leave the tool).
+-- This SAME goBack() is also what's handed to a child screen/page as its
+-- `onBack` (see below): pressing "Menu" on a page opened from the root
+-- must return to the root, not exit -- it's only "nothing left to pop"
+-- (an empty stack), never "the current screen happens to be the root",
+-- that means exit. See app/navigation.lua's pop() for why those two are
+-- deliberately not the same check.
+
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local closeKey = requireModule("app/close_key.lua")
+local header = requireModule("app/header.lua")
+local tileGrid = requireModule("app/tile_grid.lua")
+
+local menu_container = {}
+
+-- Armed-state tile gating (Issue #2302).
+--
+-- A `lockedWhileArmed` entry is one that leads to a flight-critical write
+-- path (an FC/ESC parameter page -- see how app/tool.lua classifies the
+-- tree). While the model is armed those tiles show a forbidden sign in place
+-- of their module icon and refuse to navigate, which moves the warning
+-- *ahead* of the pilot's finger instead of leaving it to
+-- PageRuntime:showSaveArmed() after the page is already open and the form is
+-- already on screen.
+--
+-- While armed, a locked tile is disabled and shows a forbidden sign in place of
+-- its module icon; its title is unchanged, and a press on it does nothing.
+--
+-- Why a sign and not a badge or a greyed-out tile, measured on the simulator:
+--
+--   * A greyed-out tile does not work. :enable(false) is not rendered on a tile
+--     built by form.addButton(nil, {x,y,w,h}, ...): no visual change.
+--   * A coloured badge is impossible. form.addButton takes text, icon, options
+--     and press and no colour, and the icons in app/gfx are lcd.loadMask, so an
+--     icon is tinted by the theme.
+--   * The sign replaces the tile's module icon, and that is its price: while
+--     armed the tile no longer says which module it belongs to. The title is
+--     untouched, so the tile keeps its name. This is the chosen trade -- the
+--     label is not touched at all, so nothing has to be fitted into it.
+--
+
+-- Forbidden sign for a locked tile while armed. Loaded on first use.
+local forbiddenMask = nil
+local function forbiddenIcon()
+  if not forbiddenMask then forbiddenMask = lcd.loadMask("app/gfx/armed_locked.png") end
+  return forbiddenMask
+end
+
+
+-- Which tile index was last pressed on a given screen -- mirrors the
+-- original's own `prefs.menulastselected[moduleKey]` convention (see
+-- rotorflight-lua-ethos-suite's app/lib/menu_container.lua), trimmed to
+-- in-session-only (no persisted storage; nothing here needs to survive
+-- the tool being closed and reopened). Without this, a screen rebuild
+-- (initial open, or returning via Back) leaves nothing focused at all --
+-- fine for a touchscreen, but a rotary-encoder/arrow-key-only radio then
+-- has no widget to move focus *from*, so directional navigation has
+-- nowhere to start. Keyed by screenKey() below since a bare `nil` (the
+-- root screen) can't itself be a table key.
+local lastSelected = {}
+
+local function screenKey(screen)
+  return screen or "__root__"
+end
+
+-- Leaf pages are deliberately not cached. A page file is loaded for the
+-- visit, open(opts) builds the fresh PageRuntime/form closures, and the
+-- returned module table is then allowed to die. This keeps "a page only
+-- exists while open" literal, which matters more than avoiding a tiny
+-- re-parse while we are chasing page-exit RAM retention.
+local function loadPage(path)
+  package.loaded[path] = nil
+  return assert(loadfile(path))()
+end
+
+local function canOpenEntry(entry, taskGuard)
+  if not taskGuard then return true end
+  if not taskGuard.isRunning() then return false end
+  return entry.offline == true or taskGuard.isConnected()
+end
+
+local function entryGuardAllows(entry, menuGuard)
+  if menuGuard and menuGuard.isEntryEnabled then
+    return menuGuard.isEntryEnabled(entry) == true
+  end
+  return true
+end
+
+local function isEntryVisible(entry)
+  if entry and entry.visibleWhen then
+    return entry.visibleWhen() == true
+  end
+  return true
+end
+
+local function isEntryEnabled(entry, taskGuard, menuGuard)
+  return canOpenEntry(entry, taskGuard) and entryGuardAllows(entry, menuGuard)
+end
+
+local function taskGuardExpired(taskGuard)
+  return taskGuard and (not taskGuard.isRunning()) and taskGuard.graceExpired()
+end
+
+-- Whether any entry on this screen is arm-gated at all, directly or through
+-- a submenu tile whose lock was derived by app/armed_gating.lua. The walk
+-- matters because a container like Setup is itself open (it holds one
+-- read-only child) while its own children are gated -- checking only the
+-- direct entries would call such a screen ungated, and without a taskGuard
+-- no wakeup handler would be installed, so its badges could never appear.
+-- Depth-capped for the same reason app/armed_gating.lua is.
+local function screenHasArmedGating(entries, menus, depth)
+  if depth > 16 or not menus then return false end
+  for i = 1, #entries do
+    local entry = entries[i]
+    if entry.lockedWhileArmed == true then return true end
+    if entry.menuId and menus[entry.menuId] and menus[entry.menuId].entries then
+      if screenHasArmedGating(menus[entry.menuId].entries, menus, depth + 1) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+-- Armed state comes in as a function rather than a value: the session
+-- snapshot is republished continuously on the bus, and a captured boolean
+-- would freeze at whatever it was when the screen was built. app/tool.lua
+-- owns the subscription and passes a closure reading its own last value.
+local function readArmed(armedState)
+  if not armedState then return false end
+  local ok, armed = pcall(armedState)
+  if not ok then return false end
+  return armed == true
+end
+
+-- screen: nil = the root menu, otherwise a menuId key into `menus`.
+-- armedState: optional function() -> isArmed, read on every wakeup (see
+--   readArmed above). Without it every arm-gated tile stays ungated, which
+--   is what the tests exercising this file in isolation rely on.
+local function openScreen(nav, menus, rootEntries, screen, setEventHandler, setWakeupHandler, setPaintHandler, setCleanupHandler, taskGuard, armedState)
+  local title, entries, menuGuard
+  if screen == nil then
+    title, entries = "Rotorflight", rootEntries
+  else
+    local sub = menus[screen]
+    title, entries = sub.title, sub.entries
+    menuGuard = sub.guard
+  end
+
+-- DISPROVEN, DO NOT RE-ADD without new evidence: a prior version of this
+  -- function forced collectgarbage("collect") right here on every
+  -- menu-screen (re)build, on the theory that page-reload garbage was
+  -- real but simply not being swept fast enough by the background task's
+  -- own incremental collectgarbage() calls. A live A/B log disproved
+  -- this cleanly: the SAME six-page navigation stretch (Advanced submenu,
+  -- pidctrl->pidbandwidth->autolevel->mainrotor->tailrotor->rescue) leaked
+  -- essentially the same amount per page with the forced full collect in
+  -- place (+44.0/+39.2/+38.2/+61.9/+52.7/+37.1 KB) as without it
+  -- (+55.6/+41.5/+37.1/+33.7/+52.1/+46.4 KB) -- statistically
+  -- indistinguishable, and the session still ended higher overall (two
+  -- tours run this time vs. one). A full, forced collectgarbage("collect")
+  -- is a *complete* GC cycle -- if it cannot reclaim this memory, that
+  -- memory is genuinely still reachable from a live reference, not
+  -- garbage merely waiting to be swept, so calling it more often (here,
+  -- on every navigation step instead of only at app.close()) was pure
+  -- latency cost with zero benefit. Whatever is actually retaining this
+  -- (a real Lua-side reference not yet found, despite lib/bus.lua,
+  -- tasks/msp/queue.lua, and tasks/msp/common.lua all being read and
+  -- ruled out already -- or, plausibly given growth scales with field/
+  -- button count, something Ethos's own `form` widget system itself pins
+  -- outside Lua's GC reachability graph entirely) needs to actually stop
+  -- being created/retained in the first place; no amount of collecting
+  -- can free a live reference. See AGENTS.md's "Memory stats printing"
+  -- section for the full trace and current leading hypotheses.
+  -- Loaded here rather than at module level: this function only runs while
+  -- the system tool is open, and lib/memstats.lua is 2.3 kB of permanently
+  -- loaded code on the X18RS that does nothing in a session where memory
+  -- logging is off (it checks its own enablement at lib/memstats.lua:41).
+  requireModule("lib/memstats.lua").print("menu:" .. screenKey(screen))
+
+  local function goBack()
+    if menuGuard and menuGuard.close then menuGuard.close() end
+    local hadFrame, parentScreen = nav.pop()
+    if not hadFrame then
+      system.exit()
+      return
+    end
+    openScreen(nav, menus, rootEntries, parentScreen, setEventHandler, setWakeupHandler, setPaintHandler, setCleanupHandler, taskGuard, armedState)
+  end
+
+  -- Every screen installs the same handler, the root menu included.
+  --
+  -- It used to be the root alone that installed none (`if screen == nil then
+  -- setEventHandler(nil)`), on the stated grounds that the hardware Back key
+  -- should then "fall through to Ethos's own default (closing the tool),
+  -- exactly like the original at the true top of its navigation stack". That
+  -- reasoning assumed Ethos's default closes the tool on the FIRST press. It
+  -- does not -- it is two presses (#2429): the first drops the form's input
+  -- focus, the second closes. So at the root the suite had two ways out that
+  -- disagreed with each other: the on-screen Menu button reached goBack()
+  -- directly (one press, see header.build's onBack below), while the
+  -- physical RTN was handed to a default that needs an extra keypress to get
+  -- to the same place.
+  --
+  -- goBack() already covers both cases -- it pops when there is a frame and
+  -- calls system.exit() when the stack is empty (see below) -- so the root
+  -- needs no separate branch, and every screen now behaves like its own
+  -- on-screen Menu button, which is the invariant app/close_key.lua states in
+  -- its first sentence.
+  --
+  -- Verified on the radio (X18RS, 02.10.2026), and it settles the part of
+  -- #2429 that was still open: a short RTN DOES reach this handler even while a
+  -- tile holds the form's input focus. The form layer does not swallow it. The
+  -- extra press came from Ethos's default running *after* the tool returned
+  -- false, and the default's two steps are "drop the focus, then exit" -- not
+  -- from the focus existing.
+  --
+  -- That is why focusEnabledTile() below is left alone. #2429 also proposed
+  -- turning the "where was I" tile marker from an input focus into a paint, on
+  -- the theory that the form layer consumes one RTN to clear a focus; measured
+  -- on the device, it does not, and with this handler installed one press
+  -- closes from every screen with the marker still an ordinary :focus(). Do not
+  -- re-do the marker as a paint on the strength of the issue's reasoning.
+  setEventHandler(function(category, value)
+    if not closeKey.shouldHandleClose(category, value) then return false end
+    goBack()
+    return true
+  end)
+  -- Menu/tile screens never need a per-tick wakeup themselves -- only a
+  -- leaf page opted into one (via opts.setWakeupHandler below) keeps it
+  -- registered, so clear any leftover handler from whatever page was open
+  -- before navigating here.
+  setWakeupHandler(nil)
+  if setPaintHandler then
+    -- No paint of its own: the armed state is shown on the locked tiles (the
+    -- forbidden sign below), not by a frame over the whole menu.
+    setPaintHandler(nil)
+  end
+  if setCleanupHandler then
+    setCleanupHandler(nil)
+  end
+  if menuGuard and menuGuard.open then
+    menuGuard.open()
+  end
+
+  local firstGroup = nil
+  for i = 1, #entries do
+    if isEntryVisible(entries[i]) then
+      firstGroup = entries[i].group
+      break
+    end
+  end
+
+  form.clear()
+  local headerTitle = firstGroup or title
+  local headerHandle = header.build(headerTitle, {onBack = goBack})
+
+  local isArmed = readArmed(armedState)
+  local function entryIsLockedNow(entry)
+    return entry.lockedWhileArmed == true and isArmed
+  end
+
+  -- At least 1 even on an implausibly narrow screen -- a numPerRow of 0
+  -- would divide-by-zero-equivalent (infinite tiles on one "row") below.
+  local windowWidth, windowHeight = lcd.getWindowSize()
+  local numPerRow, tileW, tileH, tilePadding, tileFont = tileGrid.metrics(windowWidth, windowHeight)
+
+  -- The label one entry contributes to its tile. Pre-truncated with
+  -- tile_grid.fitLabel() so a long title never spills over the border (Issue #2299).
+  --
+  -- Declared here rather than next to entryIsLockedNow above because it
+  -- closes over tileW/tileFont, which tileGrid.metrics() only produces on
+  -- the line below -- a function defined earlier would resolve them as
+  -- globals (nil) instead of these locals.
+  local function tileLabel(entry)
+    return tileGrid.fitLabel(entry.title, tileW, tileFont)
+  end
+
+  -- form.height() reflects the header line's actual rendered height, so
+  -- the tile grid starts right below it regardless of the radio's line
+  -- height -- no hardcoded offset to get wrong.
+  -- Tiles start at a fixed left gap, so they sit clear of the frame.
+  local TILE_LEFT_GAP = 4
+
+  -- Spread the columns so the last one ends where the header's button row
+  -- ends; the fixed tile gap alone leaves the grid a few pixels short (X20:
+  -- 4 + 6 x 120 + 5 x 10 = 774 of 780). Rows keep the fixed vertical gap.
+  local colX = {}
+  local spread = 0
+  local rightEdge = headerHandle.rightEdge
+  if numPerRow > 1 and type(rightEdge) == "number" then
+    spread = rightEdge - (TILE_LEFT_GAP + numPerRow * tileW + (numPerRow - 1) * tilePadding)
+    if spread < 0 or spread >= tileW then spread = 0 end
+  end
+  for c = 0, numPerRow - 1 do
+    colX[c] = TILE_LEFT_GAP + c * (tileW + tilePadding) + (numPerRow > 1 and math.floor(c * spread / (numPerRow - 1) + 0.5) or 0)
+  end
+
+  local x, y = 0, form.height() + tilePadding
+  local lastGroup = firstGroup
+  local col = 0
+  local key = screenKey(screen)
+  local tileButtons = {}
+  for i, entry in ipairs(entries) do
+    if isEntryVisible(entry) and entry.group ~= lastGroup then
+      lastGroup = entry.group
+      if lastGroup then
+        form.addLine(lastGroup)
+        y = form.height() + tilePadding
+      end
+      x = 0
+      col = 0
+    end
+
+    if isEntryVisible(entry) then
+      -- Pre-truncate with ellipsis so long titles never collide with or
+      -- spill over the button border (Issue #2299). The arm state does not
+      -- reach the label: a locked tile keeps its title and changes only its
+      -- icon, so there is nothing arm-related for fitLabel() to absorb.
+      if col == 0 then x = TILE_LEFT_GAP end
+      local label = tileLabel(entry)
+      local tileIcon = entry.icon
+      if isArmed and entry.lockedWhileArmed == true then
+        tileIcon = forbiddenIcon()
+      end
+      tileButtons[i] = form.addButton(nil, {x = x, y = y, w = tileW, h = tileH}, {
+        text = label,
+        icon = tileIcon,
+        options = tileFont,
+        press = function()
+          -- Armed gating comes first, ahead of the task/entry guards. A
+          -- locked tile is disabled while armed (below), so this branch is
+          -- normally unreachable: it is the guard for the tick in which the
+          -- arm state changed and the grid has not been rebuilt yet. It is
+          -- deliberately silent -- the forbidden sign carries the state, and
+          -- a refused press answers with nothing (#2302).
+          if entryIsLockedNow(entry) then return end
+          if not canOpenEntry(entry, taskGuard) then
+            if taskGuard and (not taskGuard.isRunning()) and taskGuard.requestAlert then
+              taskGuard.requestAlert()
+            end
+            return
+          end
+          if not entryGuardAllows(entry, menuGuard) then return end
+          if menuGuard and menuGuard.close then menuGuard.close() end
+          lastSelected[key] = i
+          nav.push(screen)
+          if entry.menuId then
+            openScreen(nav, menus, rootEntries, entry.menuId, setEventHandler, setWakeupHandler, setPaintHandler, setCleanupHandler, taskGuard, armedState)
+          elseif entry.script then
+            local page = loadPage(entry.script)
+            page.open({
+              onBack = goBack,
+              setEventHandler = setEventHandler,
+              setWakeupHandler = setWakeupHandler,
+              setPaintHandler = setPaintHandler,
+              setCleanupHandler = setCleanupHandler,
+            })
+          end
+        end,
+      })
+
+      if tileButtons[i] and tileButtons[i].enable and entryIsLockedNow(entry) then
+        tileButtons[i]:enable(false)
+      end
+
+      col = col + 1
+      if col >= numPerRow then
+        col = 0
+        x = 0
+        y = y + tileH + tilePadding
+      else
+        x = colX[col]
+      end
+    end
+  end
+
+  -- Restore focus to whichever tile was pressed last time this screen was
+  -- open (matches the original's own `prefs.menulastselected` + `:focus()`
+  -- convention -- see the comment on `lastSelected` above), so Back
+  -- returns a rotary/arrow-key user to the same spot they left. Nothing
+  -- recorded yet (first-ever visit to this screen) falls back to
+  -- focusing the header's Menu button, exactly like the original's own
+  -- fallback when no tile is selected.
+  local function focusEnabledTile()
+    local selectedIndex = lastSelected[key]
+    if selectedIndex and tileButtons[selectedIndex] and isEntryEnabled(entries[selectedIndex], taskGuard, menuGuard) then
+      tileButtons[selectedIndex]:focus()
+      return
+    end
+    for i = 1, #entries do
+      local button = tileButtons[i]
+      if button and isEntryEnabled(entries[i], taskGuard, menuGuard) then
+        button:focus()
+        return
+      end
+    end
+    headerHandle.focusMenu()
+  end
+
+  focusEnabledTile()
+
+  local armedGated = screenHasArmedGating(entries, menus, 1)
+  if taskGuard or menuGuard or armedGated then
+    local lastEnabled = {}
+    local function updateMenuState()
+      -- Arm/disarm transition: the tile's icon is fixed when the button is
+      -- created, and the form API documents no runtime update for a
+      -- form.addButton result (the one runtime text update, on
+      -- form.addStaticText, has no button counterpart -- see header.lua) --
+      -- so the grid is rebuilt in place instead of mutating the buttons.
+      -- Rebuilding is the right trade here precisely because transitions are
+      -- rare (twice per flight, or never on the bench).
+      --
+      -- isArmed is also the value entryIsLockedNow() and the tile labels
+      -- above closed over, so it is refreshed before the rebuild test and
+      -- stays correct for a press that lands in the same tick.
+      local armedNow = readArmed(armedState)
+      if armedGated and armedNow ~= isArmed then
+        openScreen(nav, menus, rootEntries, screen, setEventHandler, setWakeupHandler, setPaintHandler, setCleanupHandler, taskGuard, armedState)
+        return
+      end
+      isArmed = armedNow
+
+      local guardChanged = false
+      if menuGuard and menuGuard.wakeup then
+        guardChanged = menuGuard.wakeup() == true
+      end
+
+      local selectedStillEnabled = false
+      local changed = guardChanged
+      local selectedIndex = lastSelected[key]
+      for i = 1, #entries do
+        local button = tileButtons[i]
+        local enabled = isEntryEnabled(entries[i], taskGuard, menuGuard) and not entryIsLockedNow(entries[i])
+        if selectedIndex == i and enabled then selectedStillEnabled = true end
+        if button and button.enable and enabled ~= lastEnabled[i] then
+          lastEnabled[i] = enabled
+          button:enable(enabled)
+          changed = true
+        end
+      end
+
+      if changed and not selectedStillEnabled then
+        focusEnabledTile()
+      end
+
+      if taskGuardExpired(taskGuard) and taskGuard.requestAlert then
+        taskGuard.requestAlert()
+      end
+    end
+    updateMenuState()
+    setWakeupHandler(updateMenuState)
+  end
+end
+
+-- nav: an app/navigation.lua instance (owned by the caller).
+-- rootEntries: this tool's top-level tile list, {title=, icon=, script=|menuId=}.
+-- setEventHandler(fn|nil): installs the function app/tool.lua's
+--   event() callback forwards physical-key events to.
+-- setWakeupHandler(fn|nil): installs the function app/tool.lua's own
+--   wakeup() callback forwards to -- see its comment for why a page needs
+--   this distinct from the background task's wakeup.
+-- setPaintHandler(fn|nil): installs the function app/tool.lua's own
+--   paint() callback forwards to, for pages with custom drawing.
+-- setCleanupHandler(fn|nil): installs a page-owned cleanup function that
+--   app/tool.lua calls if Ethos closes the whole tool while a page is open.
+-- menus: optional {menuId -> {title=, entries={...}}} for `menuId` entries.
+-- armedState: optional function() -> isArmed, polled every wakeup. See
+--   readArmed() and app/tool.lua's session.update subscription.
+function menu_container.openRoot(nav, rootEntries, setEventHandler, setWakeupHandler, setPaintHandler, setCleanupHandler, menus, taskGuard, armedState)
+  openScreen(nav, menus or {}, rootEntries, nil, setEventHandler, setWakeupHandler, setPaintHandler, setCleanupHandler, taskGuard, armedState)
+end
+
+return menu_container

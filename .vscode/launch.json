@@ -11,7 +11,7 @@
       "justMyCode": true,
       "stopOnEntry": false,
       "preLaunchTask": "Deploy & Launch [SIM]",
-      "postDebugTask": "ethos.Start"      
+      "postDebugTask": "ethos.Start"
     },
     {
       "name": "Deploy Radio",
@@ -111,6 +111,16 @@
       "justMyCode": true,
       "stopOnEntry": false,
       "postDebugTask": "Run RFSuite Sensor Tool"
+    },
+    {
+      "name": "ActiveLook Preview",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/activelook_preview/server.py",
+      "args": ["--open"],
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "stopOnEntry": false
     },
     {
       "name": "Set Deployment Language",

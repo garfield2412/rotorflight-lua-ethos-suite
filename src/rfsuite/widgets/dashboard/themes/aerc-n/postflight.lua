@@ -3,7 +3,8 @@
   GPLv3 — https://www.gnu.org/licenses/gpl-3.0.en.html
 ]] --
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 local lcd = lcd
 
 local floor = math.floor
@@ -51,7 +52,7 @@ local boxes_cache = nil
 local header_boxes_cache = nil
 local last_txbatt_type = nil
 
-local layout = {cols = 6, rows = 12, padding = 1}
+local layout = {cols = 6, rows = 12, padding = 0}
 
 local header_layout = utils.standardHeaderLayout(headeropts)
 

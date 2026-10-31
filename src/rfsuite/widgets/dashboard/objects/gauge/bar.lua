@@ -83,7 +83,8 @@ Subtext
     subtextpaddingbottom : number   -- (Optional) Padding above bottom of bar (default: 0)
 ]]
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 local lcd = lcd
 local system = system
 
@@ -101,22 +102,13 @@ local getParam = utils.getParam
 local resolveThemeColor = utils.resolveThemeColor
 local resolveThresholdColor = utils.resolveThresholdColor
 local resolveFont = utils.resolveFont
+local prepareTextLayout = utils.prepareTextLayout
+local paintTextLayout = utils.paintTextLayout
 local lastDisplayValue = nil
 local LOADING_DOTS = {".", "..", "...", "."}
 
 function render.dirty(box)
-
-    if box._lastDisplayValue == nil then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-
-    if box._lastDisplayValue ~= box._currentDisplayValue then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-
-    return false
+    return utils.dirtyOnDisplayValueChange(box)
 end
 
 local function drawFilledRoundedRectangle(x, y, w, h, r)
@@ -236,36 +228,74 @@ local function drawBatteryBox(x, y, w, h, percent, gaugeorientation, batterysegm
     end
 end
 
-local function compileTransform(t, decimals)
-    local pow = decimals and (10 ^ decimals) or nil
-    local function round(v) return pow and (floor(v * pow + 0.5) / pow) or v end
+local compileTransform = utils.compileTransform
 
-    if type(t) == "number" then
-        local mul = t
-        return function(v) return round(v * mul) end
-    elseif t == "floor" then
-        return function(v) return floor(v) end
-    elseif t == "ceil" then
-        return function(v) return ceil(v) end
-    elseif t == "round" or t == nil then
-        return function(v) return round(v) end
-    elseif type(t) == "function" then
-        return t
-    else
-        return function(v) return v end
+local function prepareGeometry(x, y, w, h, box, c)
+    local g = box._geom
+    local needGeo = (not g) or g.x ~= x or g.y ~= y or g.w ~= w or g.h ~= h or g.title ~= c.title or g.titlefont ~= c.titlefont or g.titlespacing ~= (c.titlespacing or 0) or g.titlepaddingtop ~= (c.titlepaddingtop or 0) or g.titlepaddingbottom ~= (c.titlepaddingbottom or 0) or g.titlepos ~= c.titlepos or g.gpad_left ~= (c.gpad_left or 0) or g.gpad_right ~= (c.gpad_right or 0) or g.gpad_top ~= (c.gpad_top or 0) or g.gpad_bottom ~= (c.gpad_bottom or 0)
+
+    if not needGeo then return g end
+
+    g = g or {}
+    g.x, g.y = x, y
+    g.w, g.h = w, h
+    g.title, g.titlefont = c.title, c.titlefont
+    g.titlespacing = c.titlespacing or 0
+    g.titlepaddingtop = c.titlepaddingtop or 0
+    g.titlepaddingbottom = c.titlepaddingbottom or 0
+    g.titlepos = c.titlepos
+    g.gpad_left = c.gpad_left or 0
+    g.gpad_right = c.gpad_right or 0
+    g.gpad_top = c.gpad_top or 0
+    g.gpad_bottom = c.gpad_bottom or 0
+
+    local title_area_top = 0
+    local title_area_bottom = 0
+    if c.title and c.title ~= "" then
+        lcd.font(resolveFont(c.titlefont, FONT_XS))
+        local _, tsizeH = lcd.getTextSize(c.title)
+        if c.titlepos == "bottom" then
+            title_area_bottom = (tsizeH or 0) + (c.titlepaddingtop or 0) + (c.titlepaddingbottom or 0) + (c.titlespacing or 0)
+        else
+            title_area_top = (tsizeH or 0) + (c.titlepaddingtop or 0) + (c.titlepaddingbottom or 0) + (c.titlespacing or 0)
+        end
     end
+    g.title_area_top = title_area_top
+    g.title_area_bottom = title_area_bottom
+
+    g.gauge_x = x + g.gpad_left
+    g.gauge_y = y + g.gpad_top + g.title_area_top
+    g.gauge_w = w - g.gpad_left - g.gpad_right
+    g.gauge_h = h - g.gpad_top - g.gpad_bottom - g.title_area_top - g.title_area_bottom
+
+    box._geom = g
+    return g
 end
 
 local function getStatsValue(telemetry, source, statType)
     if source == nil then return nil end
     local stats = telemetry and telemetry.sensorStats and telemetry.sensorStats[source]
-    if stats and stats[statType] ~= nil then return stats[statType] end
+    if stats and stats[statType] ~= nil then
+        local value = stats[statType]
+        local sensorDef = telemetry and telemetry.sensorTable and telemetry.sensorTable[source]
+        local localize = sensorDef and sensorDef.localizations
+        if type(localize) == "function" then
+            local localizedValue = localize(value)
+            if localizedValue ~= nil then return localizedValue end
+        end
+        return value
+    end
     return nil
 end
 
 local function getSensorUnit(telemetry, source)
     if source == nil then return nil end
     local sensorDef = telemetry and telemetry.sensorTable and telemetry.sensorTable[source]
+    local localize = sensorDef and sensorDef.localizations
+    if type(localize) == "function" then
+        local _, _, localizedUnit = localize(nil)
+        if localizedUnit ~= nil then return localizedUnit end
+    end
     return sensorDef and sensorDef.unit_string or nil
 end
 
@@ -469,30 +499,53 @@ function render.wakeup(box)
 
     if cfg.hidevalue == true then displayValue = nil end
 
+    -- A dropped sensor shows the loading state only on the bench, before the
+    -- flight has started (#2534): there a bar frozen at 85% is a wrong number,
+    -- and the pilot has to see that the source is gone. Once a flight is under
+    -- way the last reading is HELD, in flight as well as in postflight: a
+    -- momentary telemetry gap -- one missed appId, one dropped frame behind an
+    -- obstacle -- must not blank a fuel gauge the pilot is flying on, and must
+    -- not discard the reading it had. The session's flight phase
+    -- (lib/flight_stats.lua) turns a disconnect after take-off into "offline",
+    -- so holding from "inflight" onwards also covers the link going away mid-flight.
+    local mode = rfsuite.flightmode and rfsuite.flightmode.current or "preflight"
+    local holdLastValue = mode ~= "preflight" and mode ~= "armed"
     if value ~= nil then
         c._lastValidValue = value
         c._lastValidDisplayValue = displayValue
         c._lastValidUnit = unit
+    elseif holdLastValue and c._lastValidValue ~= nil then
+        value = c._lastValidValue
+        displayValue = c._lastValidDisplayValue
+        unit = c._lastValidUnit
     else
-        if c._lastValidValue ~= nil then
-            value = c._lastValidValue
-            displayValue = c._lastValidDisplayValue
-            unit = c._lastValidUnit
-        else
-            if c._dotCount == nil then c._dotCount = 0 end
-            c._dotCount = (c._dotCount + 1) % 4
-            displayValue = LOADING_DOTS[c._dotCount + 1]
-            unit = nil
-        end
+        c._lastValidValue = nil
+        c._lastValidDisplayValue = nil
+        c._lastValidUnit = nil
+        if c._dotCount == nil then c._dotCount = 0 end
+        c._dotCount = (c._dotCount + 1) % 4
+        displayValue = LOADING_DOTS[c._dotCount + 1]
+        unit = nil
     end
 
-    local vmin, vmax
+    local vmin, vmax, thresholds
     if source == "txbatt" then
         vmin = getParam(box, "min") or 7.2
         vmax = getParam(box, "max") or 8.4
     else
         vmin = getParam(box, "min") or 0
         vmax = getParam(box, "max") or 100
+
+        -- Localized sensors (temperatures) report values in the pilot's unit, so the
+        -- scale and thresholds, written in the sensor's base unit, must follow.
+        local sensorDef = source and telemetry and telemetry.sensorTable and telemetry.sensorTable[source]
+        local localize = sensorDef and sensorDef.localizations
+        if type(localize) == "function" then
+            local _, _, _, lMin, lMax, lThresholds = localize(nil, vmin, vmax, getParam(box, "thresholds"))
+            vmin = lMin or vmin
+            vmax = lMax or vmax
+            thresholds = lThresholds
+        end
     end
 
     local percent = 0
@@ -558,8 +611,8 @@ function render.wakeup(box)
     local thresholdValue = displayValue
     if type(thresholdValue) ~= "number" then thresholdValue = value end
 
-    c.textcolor = resolveThresholdColor(thresholdValue, box, "textcolor", "textcolor")
-    c.fillcolor = resolveThresholdColor(thresholdValue, box, "fillcolor", "fillcolor")
+    c.textcolor = resolveThresholdColor(thresholdValue, box, "textcolor", "textcolor", thresholds)
+    c.fillcolor = resolveThresholdColor(thresholdValue, box, "fillcolor", "fillcolor", thresholds)
     c.fillbgcolor = cfg.fillbgcolor
     c.bgcolor = cfg.bgcolor
     c.titlecolor = cfg.titlecolor
@@ -617,6 +670,49 @@ function render.wakeup(box)
     c.cappaddingright = cfg.cappaddingright
     c.cappaddingtop = cfg.cappaddingtop
     c.cappaddingbottom = cfg.cappaddingbottom
+
+    if box._dashboardRectW and box._dashboardRectH then
+        local gx, gy = utils.applyOffset(box._dashboardRectX or 0, box._dashboardRectY or 0, box)
+        local gw, gh
+        gx, gy, gw, gh = utils.boxContentRect(gx, gy, box._dashboardRectW, box._dashboardRectH, c.bgcolor)
+        prepareGeometry(gx, gy, gw, gh, box, c)
+
+        local boxValue, boxUnit = c.displayValue, c.unit
+        if c.hidevalue then
+            boxValue = nil
+            boxUnit = nil
+        end
+        prepareTextLayout(box, gx, gy, gw, gh, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, boxValue, boxUnit, c.font, c.valuealign, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+
+        if c.battadv and box._batteryLines then
+            local battadvpaddingleft = tonumber(c.battadvpaddingleft) or 0
+            local battadvpaddingright = tonumber(c.battadvpaddingright) or 0
+            local battadvpaddingtop = tonumber(c.battadvpaddingtop) or 0
+            local battadvpaddingbottom = tonumber(c.battadvpaddingbottom) or 0
+            local battadvgap = tonumber(c.battadvgap) or 5
+            local line1 = box._batteryLines.line1 or ""
+            local line2 = box._batteryLines.line2 or ""
+
+            lcd.font(resolveFont(c.battadvfont, FONT_S))
+            local w1, h1 = lcd.getTextSize(line1)
+            local w2, h2 = lcd.getTextSize(line2)
+            local blockW = max(w1, w2) + battadvpaddingleft + battadvpaddingright
+            local blockH = h1 + h2 + battadvpaddingtop + battadvpaddingbottom + battadvgap
+
+            local startY = gy + max(0, floor((gh - blockH) / 2 + 0.5))
+            local startX
+            if c.battadvblockalign == "left" then
+                startX = gx
+            elseif c.battadvblockalign == "center" then
+                startX = gx + floor((gw - blockW) / 2 + 0.5)
+            else
+                startX = gx + gw - blockW
+            end
+
+            prepareTextLayout(box, startX + battadvpaddingleft, startY + battadvpaddingtop, blockW - battadvpaddingleft - battadvpaddingright, h1, nil, nil, c.battadvvaluealign, c.battadvfont, 0, 0, 0, 0, 0, 0, line1, nil, c.battadvfont, c.battadvvaluealign, 0, 0, 0, 0, 0, "_battadvLayout1")
+            prepareTextLayout(box, startX + battadvpaddingleft, startY + battadvpaddingtop + h1 + battadvgap, blockW - battadvpaddingleft - battadvpaddingright, h2, nil, nil, c.battadvvaluealign, c.battadvfont, 0, 0, 0, 0, 0, 0, line2, nil, c.battadvfont, c.battadvvaluealign, 0, 0, 0, 0, 0, "_battadvLayout2")
+        end
+    end
 end
 
 function render.paint(x, y, w, h, box)
@@ -625,43 +721,7 @@ function render.paint(x, y, w, h, box)
 
     x, y, w, h = utils.drawBoxBackground(x, y, w, h, c.bgcolor)
 
-    local g = box._geom
-    local needGeo = (not g) or g.w ~= w or g.h ~= h or g.title ~= c.title or g.titlefont ~= c.titlefont or g.titlespacing ~= (c.titlespacing or 0) or g.titlepaddingtop ~= (c.titlepaddingtop or 0) or g.titlepaddingbottom ~= (c.titlepaddingbottom or 0) or g.titlepos ~= c.titlepos or g.gpad_left ~= (c.gpad_left or 0) or g.gpad_right ~= (c.gpad_right or 0) or g.gpad_top ~= (c.gpad_top or 0) or g.gpad_bottom ~= (c.gpad_bottom or 0)
-
-    if needGeo then
-        g = g or {}
-        g.w, g.h = w, h
-        g.title, g.titlefont = c.title, c.titlefont
-        g.titlespacing = c.titlespacing or 0
-        g.titlepaddingtop = c.titlepaddingtop or 0
-        g.titlepaddingbottom = c.titlepaddingbottom or 0
-        g.titlepos = c.titlepos
-        g.gpad_left = c.gpad_left or 0
-        g.gpad_right = c.gpad_right or 0
-        g.gpad_top = c.gpad_top or 0
-        g.gpad_bottom = c.gpad_bottom or 0
-
-        local title_area_top = 0
-        local title_area_bottom = 0
-        if c.title and c.title ~= "" then
-            lcd.font(resolveFont(c.titlefont, FONT_XS))
-            local _, tsizeH = lcd.getTextSize(c.title)
-            if c.titlepos == "bottom" then
-                title_area_bottom = (tsizeH or 0) + (c.titlepaddingtop or 0) + (c.titlepaddingbottom or 0) + (c.titlespacing or 0)
-            else
-                title_area_top = (tsizeH or 0) + (c.titlepaddingtop or 0) + (c.titlepaddingbottom or 0) + (c.titlespacing or 0)
-            end
-        end
-        g.title_area_top = title_area_top
-        g.title_area_bottom = title_area_bottom
-
-        g.gauge_x = x + g.gpad_left
-        g.gauge_y = y + g.gpad_top + g.title_area_top
-        g.gauge_w = w - g.gpad_left - g.gpad_right
-        g.gauge_h = h - g.gpad_top - g.gpad_bottom - g.title_area_top - g.title_area_bottom
-
-        box._geom = g
-    end
+    local g = prepareGeometry(x, y, w, h, box, c)
 
     local gauge_x, gauge_y, gauge_w, gauge_h = g.gauge_x, g.gauge_y, g.gauge_w, g.gauge_h
 
@@ -714,7 +774,8 @@ function render.paint(x, y, w, h, box)
         boxValue = nil
         boxUnit = nil
     end
-    utils.box(x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlecolor, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, boxValue, boxUnit, c.font, c.valuealign, c.textcolor, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom, nil)
+    local layout = prepareTextLayout(box, x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, boxValue, boxUnit, c.font, c.valuealign, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+    paintTextLayout(layout, c.textcolor, c.titlecolor)
 
     c.battadvpaddingleft = tonumber(c.battadvpaddingleft) or 0
     c.battadvpaddingright = tonumber(c.battadvpaddingright) or 0
@@ -743,9 +804,11 @@ function render.paint(x, y, w, h, box)
             startX = x + w - blockW
         end
 
-        utils.box(startX + c.battadvpaddingleft, startY + c.battadvpaddingtop, blockW - c.battadvpaddingleft - c.battadvpaddingright, h1, nil, nil, c.battadvvaluealign, c.battadvfont, 0, textColor, 0, 0, 0, 0, 0, line1, nil, c.battadvfont, c.battadvvaluealign, textColor, 0, 0, 0, 0, 0, nil)
+        local layout1 = prepareTextLayout(box, startX + c.battadvpaddingleft, startY + c.battadvpaddingtop, blockW - c.battadvpaddingleft - c.battadvpaddingright, h1, nil, nil, c.battadvvaluealign, c.battadvfont, 0, 0, 0, 0, 0, 0, line1, nil, c.battadvfont, c.battadvvaluealign, 0, 0, 0, 0, 0, "_battadvLayout1")
+        paintTextLayout(layout1, textColor, textColor)
 
-        utils.box(startX + c.battadvpaddingleft, startY + c.battadvpaddingtop + h1 + c.battadvgap, blockW - c.battadvpaddingleft - c.battadvpaddingright, h2, nil, nil, c.battadvvaluealign, c.battadvfont, 0, textColor, 0, 0, 0, 0, 0, line2, nil, c.battadvfont, c.battadvvaluealign, textColor, 0, 0, 0, 0, 0, nil)
+        local layout2 = prepareTextLayout(box, startX + c.battadvpaddingleft, startY + c.battadvpaddingtop + h1 + c.battadvgap, blockW - c.battadvpaddingleft - c.battadvpaddingright, h2, nil, nil, c.battadvvaluealign, c.battadvfont, 0, 0, 0, 0, 0, 0, line2, nil, c.battadvfont, c.battadvvaluealign, 0, 0, 0, 0, 0, "_battadvLayout2")
+        paintTextLayout(layout2, textColor, textColor)
     end
 end
 

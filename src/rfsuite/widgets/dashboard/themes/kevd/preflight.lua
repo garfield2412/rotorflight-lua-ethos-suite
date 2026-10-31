@@ -3,7 +3,8 @@
   GPLv3 — https://www.gnu.org/licenses/gpl-3.0.en.html
 ]] --
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 local lcd = lcd
 
 local tonumber = tonumber
@@ -15,7 +16,7 @@ local colorMode = utils.themeColors()
 
 local theme_section = "system/kevd"
 
-local THEME_DEFAULTS = {rpm_min = 0, rpm_max = 5500, bec_min = 6.5, bec_warn = 8.0, bec_max = 10.0, esctemp_warn = 110, esctemp_max = 150}
+local THEME_DEFAULTS = {rpm_min = 0, rpm_max = 5500, bec_min = 3.0, bec_warn = 6.0, bec_max = 13.0, esctemp_warn = 90, esctemp_max = 140}
 
 local function getThemeValue(key)
 
@@ -69,10 +70,7 @@ end
 
 local screenBorderStyle = {
     enabled = true,
-    -- Match the SmartFuel / advanced battery outline color path.
     bordercolor = colorMode.accentcolor or colorMode.rssifillbgcolor,
-    -- Use the preflight screen background as the page fill so any exposed
-    -- gaps from gauge offsets/resizing match the dashboard background.
     backgroundcolor = colorMode.bgcolor,
     borderwidth = 6,
     inset = -1
@@ -104,24 +102,18 @@ local function buildBoxes(W)
     local footerBgColor = colorMode.headerbgcolor or colorMode.fillbgcolor or colorMode.bgcolor
     local screenBgColor = colorMode.bgcolor or footerBgColor
     local statusTileBg = {
-        -- Outer/cell fill. This is the color visible around the rounded border
-        -- so the area behind the tile matches the main preflight screen.
         backfillcolor = screenBgColor,
         fillcolor = colorMode.tbbgcolor or footerBgColor,
         bordercolor = colorMode.accentcolor or colorMode.rssifillbgcolor,
         borderwidth = 4,
         roundradius = 6,
         inset = 4,
-        -- Grow lower tiles downward by 5 px without moving the top edge.
         insettop = 2,
         insetbottom = -3,
         contentpadding = 1
     }
 
     local statusTileRightEdgeBg = {
-        -- Used with offsetx = -5 on right-edge tiles. The larger left inset
-        -- keeps the left edge aligned while the right edge is pulled 5 px
-        -- away from the screen border.
         backfillcolor = screenBgColor,
         fillcolor = colorMode.tbbgcolor or footerBgColor,
         bordercolor = colorMode.fillcritcolor,
@@ -129,14 +121,12 @@ local function buildBoxes(W)
         roundradius = 6,
         inset = 4,
         insetleft = 9,
-        -- Grow lower tiles downward by 5 px without moving the top edge.
         insettop = 2,
         insetbottom = -3,
         contentpadding = 1
     }
 
     local statusTileTopRowBg = {
-        -- Grow top-row tiles upward by 5 px to preserve row spacing below.
         backfillcolor = screenBgColor,
         fillcolor = colorMode.tbbgcolor or footerBgColor,
         bordercolor = colorMode.accentcolor or colorMode.rssifillbgcolor,
@@ -149,7 +139,6 @@ local function buildBoxes(W)
     }
 
     local statusTileTopRowRightEdgeBg = {
-        -- Top-row version for Flights.  Maintains the right-edge clearance.
         backfillcolor = screenBgColor,
         fillcolor = colorMode.tbbgcolor or footerBgColor,
         bordercolor = colorMode.accentcolor or colorMode.rssifillbgcolor,
@@ -251,15 +240,12 @@ local function buildBoxes(W)
             batteryframe = true,
             battadv = true,
             battadvvaluealign = "right",
-            -- Shrink the SmartFuel gauge inside its box for border clearance and no internal collision.
-            -- Detail stack remains on the right, but compact layouts tighten it
-            -- so it does not collide with the percent value.
             gaugepaddingbottom = 8,
             gaugepaddingleft = 5,
             gaugepaddingright = 10,
             valuealign = "left",
             batteryframethickness = opts.batteryframethickness,
-            font = opts.smartfont, --(smart fuel % size)
+            font = opts.smartfont,
             valuefont = opts.smartvaluefont,
             valuepaddingleft = 10,
             valuepaddingtop = opts.smartvaluepaddingtop,
@@ -275,14 +261,13 @@ local function buildBoxes(W)
             textcolor = colorMode.textcolor,
             accentcolor = colorMode.accentcolor,
             transform = "floor",
-            -- Updated fillcolor for value = 45 using lcd.RGB
             thresholds = {{value = 25, fillcolor = colorMode.fillcritcolor}, {value = 50, fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)}}
         },
         {
             col = 4,
             colspan = 2,
             row = 1,
-            rowspan = 7,
+            rowspan = 8,
             offsetx = 2,
             offsety = 10,
             type = "gauge",
@@ -302,7 +287,11 @@ local function buildBoxes(W)
             fillbgcolor = colorMode.fillbgcolor,
             titlecolor = colorMode.titlecolor,
             textcolor = colorMode.textcolor,
-            thresholds = {{value = 7.4, fillcolor = colorMode.fillcritcolor}, {value = getThemeValue("bec_max"), fillcolor = colorMode.fillcolor}}
+            thresholds = {
+                {value = 7.4, fillcolor = colorMode.fillcritcolor},
+                {value = getThemeValue("bec_warn"), fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)},
+                {value = getThemeValue("bec_max"), fillcolor = colorMode.fillcolor}
+            }
         },
         {
             col = 4,
@@ -330,7 +319,7 @@ local function buildBoxes(W)
             col = 6,
             colspan = 2,
             row = 1,
-            rowspan = 7,
+            rowspan = 8,
             offsetx = -8,
             offsety = 10,
             type = "gauge",
@@ -354,7 +343,7 @@ local function buildBoxes(W)
             transform = "floor",
             thresholds = {
                 {value = getThemeValue("esctemp_warn"), fillcolor = colorMode.fillcolor},
-                {value = getThemeValue("esctemp_max"), fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)},
+                {value = getThemeValue("esctemp_max") - 1, fillcolor = lcd.RGB(0xE3, 0xA3, 0x00)},
                 {value = 10000, fillcolor = colorMode.fillcritcolor}
             }
         },
@@ -379,7 +368,7 @@ local function buildBoxes(W)
             titlecolor = colorMode.titlecolor,
             thresholds = {
                 {value = "DISARMED", textcolor = colorMode.fillcritcolor}, {value = "OFF", textcolor = colorMode.fillcritcolor}, {value = "IDLE", textcolor = colorMode.accentcolor}, {value = "SPOOLUP", textcolor = colorMode.accentcolor}, {value = "RECOVERY", textcolor = lcd.RGB(0xE3, 0xA3, 0x00)}, {value = "ACTIVE", textcolor = colorMode.fillcolor},
-                {value = "@i18n(widgets.governor.THR-OFF)@", textcolor = colorMode.fillcritcolor}
+                {value = "@i18n(widgets.governor.THROFF)@", textcolor = colorMode.fillcritcolor}
             }
         }
     }

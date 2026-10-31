@@ -33,7 +33,8 @@
     bgcolor             : color                     -- (Optional) Widget background color (theme fallback if nil)
     ]] --
 
-local rfsuite = require("rfsuite")
+local requireModule = package.loaded["rfsuite.lib.require"] or assert(loadfile("lib/require.lua"))()
+local rfsuite = requireModule("widgets/dashboard/context.lua")
 
 local format = string.format
 
@@ -42,100 +43,24 @@ local render = {}
 local utils = rfsuite.widgets.dashboard.utils
 local getParam = utils.getParam
 local resolveThemeColor = utils.resolveThemeColor
-local eraseDataflashGo = false
-local progressBaseMessage
-local progressMspStatusLast
-local MSP_DEBUG_PLACEHOLDER = "MSP Waiting"
+local prepareTextLayout = utils.prepareTextLayout
+local paintTextLayout = utils.paintTextLayout
 local LOADING_DOTS = {".", "..", "...", "."}
 local BLACKBOX_UNIT_LABEL = "@i18n(app.modules.fblstatus.megabyte)@"
 
-local function openProgressDialog(...)
-    if rfsuite.utils.ethosVersionAtLeast({26, 1, 0}) and form.openWaitDialog then
-        local arg1 = select(1, ...)
-        if type(arg1) == "table" then
-            arg1.progress = true
-            return form.openWaitDialog(arg1)
-        end
-        local title = arg1
-        local message = select(2, ...)
-        return form.openWaitDialog({title = title, message = message, progress = true})
-    end
-    return form.openProgressDialog(...)
+function render.invalidate(box)
+    box._cfg = nil
+    box._textLayout = nil
 end
-
-function render.invalidate(box) box._cfg = nil end
 
 function render.dirty(box)
     if not rfsuite.session.telemetryState then return false end
-    if box._lastDisplayValue == nil then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-    if box._lastDisplayValue ~= box._currentDisplayValue then
-        box._lastDisplayValue = box._currentDisplayValue
-        return true
-    end
-    return false
-end
-
-local function eraseBlackboxAsk()
-    local buttons = {
-        {
-            label = "@i18n(app.btn_ok)@",
-            action = function()
-                eraseDataflash()
-                return true
-            end
-        }, {label = "@i18n(app.btn_cancel)@", action = function() return true end}
-    }
-
-    form.openDialog({title = "@i18n(widgets.bbl.erase_dataflash)@", message = "@i18n(widgets.bbl.erase_dataflash)@" .. "?", buttons = buttons, options = TEXT_LEFT})
-end
-
-local function eraseDataflash()
-    isErase = true
-    progress = openProgressDialog("@i18n(app.msg_saving)@", "@i18n(app.msg_saving_to_fbl)@")
-    progress:value(0)
-    progress:closeAllowed(false)
-    progressCounter = 0
-    progressBaseMessage = "@i18n(app.msg_saving_to_fbl)@"
-    progressMspStatusLast = nil
-    if utils and utils.registerProgressDialog then
-        utils.registerProgressDialog(progress, progressBaseMessage)
-    end
-
-    local message = {command = 72, processReply = function() isErase = false end}
-    rfsuite.tasks.msp.mspQueue:add(message)
-end
-
-local function updateProgressMessage()
-    if not progress or not progressBaseMessage then return end
-    local showMsp = rfsuite.preferences and rfsuite.preferences.general and rfsuite.preferences.general.mspstatusdialog
-    local mspStatus = (showMsp and rfsuite.session and rfsuite.session.mspStatusMessage) or nil
-    if showMsp then
-        local msg = mspStatus or MSP_DEBUG_PLACEHOLDER
-        if msg ~= progressMspStatusLast then
-            progress:message(msg)
-            progressMspStatusLast = msg
-        end
-    else
-        if progressMspStatusLast ~= nil then
-            progress:message(progressBaseMessage)
-            progressMspStatusLast = nil
-        end
-    end
+    return utils.dirtyOnDisplayValueChange(box)
 end
 
 local function ensureCfg(box)
-    local theme_version = (rfsuite and rfsuite.theme and rfsuite.theme.version) or 0
-    local param_version = box._param_version or 0
-    local cfg = box._cfg
-    if (not cfg) or cfg._theme_version ~= theme_version or cfg._param_version ~= param_version then
-        cfg = {}
-        cfg._theme_version = theme_version
-        cfg._param_version = param_version
+    return utils.ensureCfg(box, function(cfg, box)
         cfg.title = getParam(box, "title")
-        print("Loading config for battery widget with title: " .. tostring(cfg.title))
         cfg.titlepos = getParam(box, "titlepos")
         cfg.titlealign = getParam(box, "titlealign")
         cfg.titlefont = getParam(box, "titlefont")
@@ -160,15 +85,15 @@ local function ensureCfg(box)
         cfg.valuepaddingtop = getParam(box, "valuepaddingtop")
         cfg.valuepaddingbottom = getParam(box, "valuepaddingbottom")
         cfg.bgcolor = resolveThemeColor("bgcolor", getParam(box, "bgcolor"))
-
-        box._cfg = cfg
-    end
-    return box._cfg
+    end)
 end
 
 function render.wakeup(box)
 
     local cfg = ensureCfg(box)
+    -- The unit belongs to a capacity only. "Not supported", the loading dots and a missing
+    -- value get none (#2566 follow-up).
+    box._showUnit = false
 
     local totalSize = rfsuite.session.bblSize
     local usedSize = rfsuite.session.bblUsed
@@ -176,7 +101,15 @@ function render.wakeup(box)
     local displayValue
     local percentUsed
 
-    if totalSize and usedSize then
+    if totalSize == 0 then
+        -- A board without dataflash answers total = 0. That is an answer, not a
+        -- capacity (#2507): say the board has no dataflash instead of drawing 0.00/0.00 MB.
+        displayValue = "@i18n(app.modules.blackbox.no_dataflash)@"
+        percentUsed = nil
+        box._lastUsedSize = nil
+        box._lastTotalSize = nil
+    elseif totalSize and usedSize then
+        box._showUnit = true
         local usedMB = usedSize / (1024 * 1024)
         local totalMB = totalSize / (1024 * 1024)
         percentUsed = totalSize > 0 and (usedSize / totalSize) * 100 or 0
@@ -207,40 +140,28 @@ function render.wakeup(box)
 
     box._dynamicTextColor = percentUsed ~= nil and utils.resolveThresholdColor(percentUsed, box, "textcolor", "textcolor") or cfg.defaultTextColor
 
-    if eraseDataflashGo then
-        eraseDataflashGo = false
-        eraseDataflash()
-    end
-
-    if progress then
-        updateProgressMessage()
-        progressCounter = (progressCounter or 0) + 20
-        progress:value(progressCounter)
-        if progressCounter >= 100 then
-            progress:close()
-            if utils and utils.clearProgressDialog then
-                utils.clearProgressDialog(progress)
-            end
-            progress = nil
-            progressBaseMessage = nil
-            progressMspStatusLast = nil
-        end
-    end
-
     box._currentDisplayValue = displayValue
+
+    if box._dashboardRectW and box._dashboardRectH then
+        local unitForPaint = box._showUnit and cfg.unit or nil
+        local x, y = utils.applyOffset(box._dashboardRectX or 0, box._dashboardRectY or 0, box)
+        local w, h
+        x, y, w, h = utils.boxContentRect(x, y, box._dashboardRectW, box._dashboardRectH, cfg.bgcolor)
+        prepareTextLayout(box, x, y, w, h, cfg.title, cfg.titlepos, cfg.titlealign, cfg.titlefont, cfg.titlespacing, cfg.titlepadding, cfg.titlepaddingleft, cfg.titlepaddingright, cfg.titlepaddingtop, cfg.titlepaddingbottom, box._currentDisplayValue, unitForPaint, cfg.font, cfg.valuealign, cfg.valuepadding, cfg.valuepaddingleft, cfg.valuepaddingright, cfg.valuepaddingtop, cfg.valuepaddingbottom)
+    end
 end
 
 function render.paint(x, y, w, h, box)
     x, y = utils.applyOffset(x, y, box)
     local c = box._cfg or {}
 
-    local unitForPaint = box._isLoadingDots and nil or c.unit
+    local unitForPaint = box._showUnit and c.unit or nil
     local textColor = box._dynamicTextColor or c.defaultTextColor
 
-    utils.box(x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlecolor, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, box._currentDisplayValue, unitForPaint, c.font, c.valuealign, textColor, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom, c.bgcolor)
+    x, y, w, h = utils.drawBoxBackground(x, y, w, h, c.bgcolor)
+    local layout = prepareTextLayout(box, x, y, w, h, c.title, c.titlepos, c.titlealign, c.titlefont, c.titlespacing, c.titlepadding, c.titlepaddingleft, c.titlepaddingright, c.titlepaddingtop, c.titlepaddingbottom, box._currentDisplayValue, unitForPaint, c.font, c.valuealign, c.valuepadding, c.valuepaddingleft, c.valuepaddingright, c.valuepaddingtop, c.valuepaddingbottom)
+    paintTextLayout(layout, textColor, c.titlecolor)
 end
-
-render.eraseBlackboxAsk = eraseBlackboxAsk
 
 return render
 
