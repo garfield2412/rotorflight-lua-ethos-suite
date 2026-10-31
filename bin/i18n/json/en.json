@@ -7048,6 +7048,12 @@
           "needs_translation": false,
           "max_length": 16
         },
+        "stops_shake_fmt": {
+          "english": "Shaking %d deg/s",
+          "translation": "Shaking %d deg/s",
+          "needs_translation": false,
+          "max_length": 16
+        },
         "act_fly_roll": {
           "english": "Fly rolls in acro mode, centre the stick after each",
           "translation": "Fly rolls in acro mode, centre the stick after each",
@@ -7180,11 +7186,29 @@
           "needs_translation": false,
           "max_length": 54
         },
+        "why_shake_fmt": {
+          "english": "Shakes %d deg/s at centre stick. Less P calms it.",
+          "translation": "Shakes %d deg/s at centre stick. Less P calms it.",
+          "needs_translation": false,
+          "max_length": 49
+        },
         "why_ok": {
           "english": "The heli answers the stick as asked.",
           "translation": "The heli answers the stick as asked.",
           "needs_translation": false,
           "max_length": 36
+        },
+        "why_limit": {
+          "english": "The change needed goes past a setting's limit.",
+          "translation": "The change needed goes past a setting's limit.",
+          "needs_translation": false,
+          "max_length": 46
+        },
+        "why_p_max_fmt": {
+          "english": "P is already %d%% above your setting. Check the mechanics.",
+          "translation": "P is already %d%% above your setting. Check the mechanics.",
+          "needs_translation": false,
+          "max_length": 58
         },
         "data_flights_fmt": {
           "english": "%dm %02ds, %d/%d flights",
