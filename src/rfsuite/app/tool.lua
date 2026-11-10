@@ -262,6 +262,8 @@ local MENUS = {
       {title = "@i18n(app.modules.esc_tools.mfg.blheli_s.name)@", icon = lcd.loadMask("app/gfx/esc_mfg_blheli_s.png"), script = "app/pages/esc_forward_blheli_s.lua", escProtocolId = 1, lockedWhileArmed = true},
       {title = "@i18n(app.modules.esc_tools.mfg.bluejay.name)@", icon = lcd.loadMask("app/gfx/esc_mfg_bluejay.png"), script = "app/pages/esc_forward_bluejay.lua", escProtocolId = 1, lockedWhileArmed = true},
       {title = "@i18n(app.modules.esc_tools.mfg.flrtr.name)@", icon = lcd.loadMask("app/gfx/esc_mfg_flyrotor.png"), script = "app/pages/esc_forward_flyrotor.lua", escProtocolId = 10, lockedWhileArmed = true},
+      -- UI-only preview; no ESC protocol requirement until firmware integration.
+      {title = "@i18n(app.modules.esc_tools.mfg.kontr.name)@", icon = lcd.loadMask("app/gfx/esc_mfg_kontronik.png"), script = "app/pages/esc_forward_kontronik.lua", lockedWhileArmed = true},
       {title = "@i18n(app.modules.esc_tools.mfg.omp.name)@", icon = lcd.loadMask("app/gfx/esc_mfg_omp.png"), script = "app/pages/esc_forward_omp.lua", escProtocolId = 6, lockedWhileArmed = true},
       {title = "@i18n(app.modules.esc_tools.mfg.scorp.name)@", icon = lcd.loadMask("app/gfx/esc_mfg_scorpion.png"), script = "app/pages/esc_forward_scorpion.lua", escProtocolId = 4, lockedWhileArmed = true},
       {title = "@i18n(app.modules.esc_tools.mfg.xdfly.name)@", icon = lcd.loadMask("app/gfx/esc_mfg_xdfly.png"), script = "app/pages/esc_forward_xdfly.lua", escProtocolId = 12, lockedWhileArmed = true},

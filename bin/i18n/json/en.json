@@ -5377,6 +5377,632 @@
           "translation": "Use the matching ESC manufacturer page."
         },
         "mfg": {
+          "kontr": {
+            "PWM_min": {
+              "english": "PWM minimum",
+              "translation": "PWM minimum",
+              "needs_translation": false,
+              "max_length": 11
+            },
+            "act_impulse_length": {
+              "english": "Actual Impulse Length",
+              "translation": "Actual Impulse Length",
+              "needs_translation": false,
+              "max_length": 21
+            },
+            "alarm": {
+              "english": "Alarm",
+              "translation": "Alarm",
+              "needs_translation": false,
+              "max_length": 5
+            },
+            "alternate_startup": {
+              "english": "Alternate Startup",
+              "translation": "Alternate Startup",
+              "needs_translation": false,
+              "max_length": 17
+            },
+            "basic": {
+              "english": "Basic",
+              "translation": "Basic",
+              "needs_translation": false,
+              "max_length": 5
+            },
+            "battery_type": {
+              "english": "Battery Type",
+              "translation": "Battery Type",
+              "needs_translation": false,
+              "max_length": 12
+            },
+            "bec_voltage": {
+              "english": "BEC Voltage",
+              "translation": "BEC Voltage",
+              "needs_translation": false,
+              "max_length": 11
+            },
+            "brake": {
+              "english": "Brake",
+              "translation": "Brake",
+              "needs_translation": false,
+              "max_length": 5
+            },
+            "brake_position": {
+              "english": "Brake Position",
+              "translation": "Brake Position",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "bt_disable_motor_renable_button": {
+              "english": "Disable after first run",
+              "translation": "Disable after first run",
+              "needs_translation": false,
+              "max_length": 23
+            },
+            "bt_disable_motor_renable_motor_stop": {
+              "english": "Disable while running",
+              "translation": "Disable while running",
+              "needs_translation": false,
+              "max_length": 21
+            },
+            "discharge_limit": {
+              "english": "Discharge Limit",
+              "translation": "Discharge Limit",
+              "needs_translation": false,
+              "max_length": 15
+            },
+            "esc_status": {
+              "english": "ESC Live Status",
+              "translation": "ESC Live Status",
+              "needs_translation": false,
+              "max_length": 15
+            },
+            "extra_smooth_IU": {
+              "english": "Smooth idle up",
+              "translation": "Smooth idle up",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "flight_Mode_choice_0": {
+              "english": "Sailplane",
+              "translation": "Sailplane",
+              "needs_translation": false,
+              "max_length": 9
+            },
+            "flight_Mode_choice_1": {
+              "english": "Motorplane",
+              "translation": "Motorplane",
+              "needs_translation": false,
+              "max_length": 10
+            },
+            "flight_Mode_choice_2": {
+              "english": "Helicopter",
+              "translation": "Helicopter",
+              "needs_translation": false,
+              "max_length": 10
+            },
+            "flight_Mode_choice_3": {
+              "english": "Auto",
+              "translation": "Auto",
+              "needs_translation": false,
+              "max_length": 4
+            },
+            "flight_mode": {
+              "english": "Model type",
+              "translation": "Model type",
+              "needs_translation": false,
+              "max_length": 10
+            },
+            "fwd_bckwd": {
+              "english": "Forward/Backward",
+              "translation": "Forward/Backward",
+              "needs_translation": false,
+              "max_length": 16
+            },
+            "gear_ratio": {
+              "english": "Main Gear Ratio 1:",
+              "translation": "Main Gear Ratio 1:",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "how_adj_max_rpm": {
+              "english": "Max RPM source",
+              "translation": "Max RPM source",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "how_adj_max_rpm_choice_0": {
+              "english": "At idle up",
+              "translation": "At idle up",
+              "needs_translation": false,
+              "max_length": 10
+            },
+            "how_adj_max_rpm_choice_1": {
+              "english": "Governor store",
+              "translation": "Governor store",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "max_bec_current": {
+              "english": "Alarm max BEC current",
+              "translation": "Alarm max BEC current",
+              "needs_translation": false,
+              "max_length": 21
+            },
+            "max_bec_temp": {
+              "english": "Alarm max BEC temperature",
+              "translation": "Alarm max BEC temperature",
+              "needs_translation": false,
+              "max_length": 25
+            },
+            "max_discharge": {
+              "english": "Alarm max discharge",
+              "translation": "Alarm max discharge",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "max_esc_temp": {
+              "english": "Alarm max ESC temperature",
+              "translation": "Alarm max ESC temperature",
+              "needs_translation": false,
+              "max_length": 25
+            },
+            "max_motor_current": {
+              "english": "Alarm max motor current",
+              "translation": "Alarm max motor current",
+              "needs_translation": false,
+              "max_length": 23
+            },
+            "max_position": {
+              "english": "Max Position",
+              "translation": "Max Position",
+              "needs_translation": false,
+              "max_length": 12
+            },
+            "max_rpm": {
+              "english": "Max RPM",
+              "translation": "Max RPM",
+              "needs_translation": false,
+              "max_length": 7
+            },
+            "min_input_voltage": {
+              "english": "Min. input voltage",
+              "translation": "Min. input voltage",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "motor": {
+              "english": "Motor",
+              "translation": "Motor",
+              "needs_translation": false,
+              "max_length": 5
+            },
+            "motor_resist": {
+              "english": "Motor resistance",
+              "translation": "Motor resistance",
+              "needs_translation": false,
+              "max_length": 16
+            },
+            "name": {
+              "english": "KONTRONIK",
+              "translation": "KONTRONIK",
+              "needs_translation": false,
+              "max_length": 9
+            },
+            "off_position": {
+              "english": "Off Position",
+              "translation": "Off Position",
+              "needs_translation": false,
+              "max_length": 12
+            },
+            "p-gain": {
+              "english": "P-Gain",
+              "translation": "P-Gain",
+              "needs_translation": false,
+              "max_length": 6
+            },
+            "pole_number": {
+              "english": "Pole Count",
+              "translation": "Pole Count",
+              "needs_translation": false,
+              "max_length": 10
+            },
+            "preview": {
+              "english": "Preview: changes are not saved",
+              "translation": "Preview: changes are not saved",
+              "needs_translation": false,
+              "max_length": 30
+            },
+            "prop_brake": {
+              "english": "Proportional brake",
+              "translation": "Proportional brake",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "rc": {
+              "english": "Remote Control",
+              "translation": "Remote Control",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "rotation": {
+              "english": "Reverse Rotation",
+              "translation": "Reverse Rotation",
+              "needs_translation": false,
+              "max_length": 16
+            },
+            "rpm_ctl": {
+              "english": "RPM Control",
+              "translation": "RPM Control",
+              "needs_translation": false,
+              "max_length": 11
+            },
+            "slewrate_down": {
+              "english": "Slew Rate Down",
+              "translation": "Slew Rate Down",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "slewrate_up": {
+              "english": "Slew Rate Up",
+              "translation": "Slew Rate Up",
+              "needs_translation": false,
+              "max_length": 12
+            },
+            "startup_curr_limit": {
+              "english": "Startup current limit",
+              "translation": "Startup current limit",
+              "needs_translation": false,
+              "max_length": 21
+            },
+            "startuptime": {
+              "english": "Startup Time",
+              "translation": "Startup Time",
+              "needs_translation": false,
+              "max_length": 12
+            },
+            "status_note": {
+              "english": "Live status is not available yet",
+              "translation": "Live status is not available yet",
+              "needs_translation": false,
+              "max_length": 32
+            },
+            "undervoltage_behavior": {
+              "english": "Low voltage action",
+              "translation": "Low voltage action",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "undervoltage_behavior_choice_0": {
+              "english": "Slow down",
+              "translation": "Slow down",
+              "needs_translation": false,
+              "max_length": 9
+            },
+            "undervoltage_behavior_choice_1": {
+              "english": "Shut down",
+              "translation": "Shut down",
+              "needs_translation": false,
+              "max_length": 9
+            },
+            "undervoltage_cell": {
+              "english": "Cell cutoff",
+              "translation": "Cell cutoff",
+              "needs_translation": false,
+              "max_length": 11
+            },
+            "preset_target": {
+              "english": "Default parameter set",
+              "translation": "Default parameter set",
+              "needs_translation": false,
+              "max_length": 21
+            },
+            "preset_load": {
+              "english": "Load preset",
+              "translation": "Load preset",
+              "needs_translation": false,
+              "max_length": 11
+            },
+            "preset_confirm_title": {
+              "english": "Load ESC defaults?",
+              "translation": "Load ESC defaults?",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "preset_confirm": {
+              "english": "Loading %s replaces all ESC parameters.\nPreview only: no ESC changes will be made.",
+              "translation": "Loading %s replaces all ESC parameters.\nPreview only: no ESC changes will be made.",
+              "needs_translation": false,
+              "max_length": 82
+            },
+            "preset_none": {
+              "english": "No preset requested",
+              "translation": "No preset requested",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "preset_requested": {
+              "english": "Preview request: %s",
+              "translation": "Preview request: %s",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "preset_f5a": {
+              "english": "F5A",
+              "translation": "F5A",
+              "needs_translation": false,
+              "max_length": 3
+            },
+            "preset_car": {
+              "english": "Car",
+              "translation": "Car",
+              "needs_translation": false,
+              "max_length": 3
+            },
+            "status_identity": {
+              "english": "Controller",
+              "translation": "Controller",
+              "needs_translation": false,
+              "max_length": 10
+            },
+            "status_model": {
+              "english": "ESC model",
+              "translation": "ESC model",
+              "needs_translation": false,
+              "max_length": 9
+            },
+            "status_eeprom": {
+              "english": "EEPROM version",
+              "translation": "EEPROM version",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "status_programming": {
+              "english": "Programming allowed",
+              "translation": "Programming allowed",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "status_state": {
+              "english": "Operating state",
+              "translation": "Operating state",
+              "needs_translation": false,
+              "max_length": 15
+            },
+            "status_live": {
+              "english": "Live measurements",
+              "translation": "Live measurements",
+              "needs_translation": false,
+              "max_length": 17
+            },
+            "status_runtime": {
+              "english": "Runtime (s)",
+              "translation": "Runtime (s)",
+              "needs_translation": false,
+              "max_length": 11
+            },
+            "status_battery_v": {
+              "english": "Battery voltage (V)",
+              "translation": "Battery voltage (V)",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "status_battery_a": {
+              "english": "Battery current (A)",
+              "translation": "Battery current (A)",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "status_capacity": {
+              "english": "Used capacity (mAh)",
+              "translation": "Used capacity (mAh)",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "status_rpm": {
+              "english": "Output speed (RPM)",
+              "translation": "Output speed (RPM)",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "status_motor_a": {
+              "english": "Motor current (A)",
+              "translation": "Motor current (A)",
+              "needs_translation": false,
+              "max_length": 17
+            },
+            "status_timing": {
+              "english": "Timing (deg)",
+              "translation": "Timing (deg)",
+              "needs_translation": false,
+              "max_length": 12
+            },
+            "status_bec_v": {
+              "english": "BEC voltage (V)",
+              "translation": "BEC voltage (V)",
+              "needs_translation": false,
+              "max_length": 15
+            },
+            "status_bec_a": {
+              "english": "BEC current (A)",
+              "translation": "BEC current (A)",
+              "needs_translation": false,
+              "max_length": 15
+            },
+            "status_bec_temp": {
+              "english": "BEC temperature (C)",
+              "translation": "BEC temperature (C)",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "status_throttle": {
+              "english": "Throttle command (%)",
+              "translation": "Throttle command (%)",
+              "needs_translation": false,
+              "max_length": 20
+            },
+            "status_target_rpm": {
+              "english": "Target speed (RPM)",
+              "translation": "Target speed (RPM)",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "status_pwm": {
+              "english": "Actual PWM (%)",
+              "translation": "Actual PWM (%)",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "status_esc_temp": {
+              "english": "ESC temperature (C)",
+              "translation": "ESC temperature (C)",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "status_pulse": {
+              "english": "Throttle pulse (us)",
+              "translation": "Throttle pulse (us)",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "status_pulse_avg": {
+              "english": "Average pulse (us)",
+              "translation": "Average pulse (us)",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "status_statistics": {
+              "english": "Minimum / maximum",
+              "translation": "Minimum / maximum",
+              "needs_translation": false,
+              "max_length": 17
+            },
+            "status_min_battery": {
+              "english": "Min. battery voltage (V)",
+              "translation": "Min. battery voltage (V)",
+              "needs_translation": false,
+              "max_length": 24
+            },
+            "status_max_motor": {
+              "english": "Max. motor current (A)",
+              "translation": "Max. motor current (A)",
+              "needs_translation": false,
+              "max_length": 22
+            },
+            "status_peak_motor": {
+              "english": "Peak motor current (A)",
+              "translation": "Peak motor current (A)",
+              "needs_translation": false,
+              "max_length": 22
+            },
+            "status_min_bec": {
+              "english": "Min. BEC voltage (V)",
+              "translation": "Min. BEC voltage (V)",
+              "needs_translation": false,
+              "max_length": 20
+            },
+            "status_max_bec_a": {
+              "english": "Max. BEC current (A)",
+              "translation": "Max. BEC current (A)",
+              "needs_translation": false,
+              "max_length": 20
+            },
+            "status_max_bec_temp": {
+              "english": "Max. BEC temp. (C)",
+              "translation": "Max. BEC temp. (C)",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "status_max_esc_temp": {
+              "english": "Max. ESC temp. (C)",
+              "translation": "Max. ESC temp. (C)",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "status_events": {
+              "english": "Latest event",
+              "translation": "Latest event",
+              "needs_translation": false,
+              "max_length": 12
+            },
+            "status_event_time": {
+              "english": "Event time (s)",
+              "translation": "Event time (s)",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "status_event_type": {
+              "english": "Event severity",
+              "translation": "Event severity",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "status_event_code": {
+              "english": "Event code",
+              "translation": "Event code",
+              "needs_translation": false,
+              "max_length": 10
+            },
+            "status_event_text": {
+              "english": "Event description",
+              "translation": "Event description",
+              "needs_translation": false,
+              "max_length": 17
+            },
+            "bluetooth": {
+              "english": "Bluetooth interface",
+              "translation": "Bluetooth interface",
+              "needs_translation": false,
+              "max_length": 19
+            },
+            "bt_button_note": {
+              "english": "Restore Bluetooth with the module button",
+              "translation": "Restore Bluetooth with the module button",
+              "needs_translation": false,
+              "max_length": 40
+            },
+            "bt_stop_note": {
+              "english": "Restore Bluetooth when the motor stops",
+              "translation": "Restore Bluetooth when the motor stops",
+              "needs_translation": false,
+              "max_length": 38
+            },
+            "alarm_edit": {
+              "english": "Edit ESC alarms",
+              "translation": "Edit ESC alarms",
+              "needs_translation": false,
+              "max_length": 15
+            },
+            "alarm_note": {
+              "english": "These alarms belong to the ESC.",
+              "translation": "These alarms belong to the ESC.",
+              "needs_translation": false,
+              "max_length": 31
+            },
+            "alarm_independent": {
+              "english": "Rotorflight/Suite alerts are set separately.",
+              "translation": "Rotorflight/Suite alerts are set separately.",
+              "needs_translation": false,
+              "max_length": 44
+            },
+            "rc_check": {
+              "english": "RC endpoint check",
+              "translation": "RC endpoint check",
+              "needs_translation": false,
+              "max_length": 17
+            },
+            "rc_valid": {
+              "english": "Endpoints valid",
+              "translation": "Endpoints valid",
+              "needs_translation": false,
+              "max_length": 15
+            },
+            "rc_invalid": {
+              "english": "Check endpoints",
+              "translation": "Check endpoints",
+              "needs_translation": false,
+              "max_length": 15
+            }
+          },
           "am32": {
             "advanced": {
               "english": "Advanced",

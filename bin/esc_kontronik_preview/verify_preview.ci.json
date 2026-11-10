@@ -1,0 +1,7 @@
+{
+  "id": "esc-kontronik-preview",
+  "name": "Kontronik setup stays local until firmware integration",
+  "step": "Check the Kontronik UI preview boundary",
+  "script": "bin/esc_kontronik_preview/verify_preview.lua",
+  "rationale": "Opens the real preview page with a strict dependency allowlist: adding a bus or codec dependency fails immediately. Checks all 37 controls and six groups, local editing, disabled Save/Reload, confirmed/cancelled preset actions, all five documented preset command values, 31 unavailable status rows, chemistry-specific cutoff retention and clamp protection, brake/governor/store dependencies and endpoint diagnostics, alarm opt-in/re-lock/reset and unchanged-state gating, pending dialog cleanup, stale callbacks and discarded edits after reopening. This preserves the UI-only scope while ESC firmware communication is deferred."
+}

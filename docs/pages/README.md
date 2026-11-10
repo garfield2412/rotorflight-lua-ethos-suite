@@ -8,7 +8,7 @@ sidebar_label: Pages
 Reference documentation for each configuration and settings page reachable
 within the RFSuite Ethos system tool.
 
-**Status:** 87 reachable pages in navigation hierarchy.
+**Status:** 88 reachable pages in navigation hierarchy.
 
 The *Conditions* column names what hides, greys out or locks a page; the sentences
 and structure follow [_template.md](../_template.md).
@@ -73,6 +73,7 @@ and structure follow [_template.md](../_template.md).
 | BLHeli_S | [setup/esc_motors/esc_tools/blheli_s.md](setup/esc_motors/esc_tools/blheli_s.md) | Greyed out until the flight controller answers. Read-only while the model is armed. Lit only while the flight controller reports this ESC telemetry protocol (Protocol ID: 1). | written |
 | Bluejay | [setup/esc_motors/esc_tools/bluejay.md](setup/esc_motors/esc_tools/bluejay.md) | Greyed out until the flight controller answers. Read-only while the model is armed. Lit only while the flight controller reports this ESC telemetry protocol (Protocol ID: 1). | written |
 | FLYROTOR | [setup/esc_motors/esc_tools/flyrotor.md](setup/esc_motors/esc_tools/flyrotor.md) | Greyed out until the flight controller answers. Read-only while the model is armed. Lit only while the flight controller reports this ESC telemetry protocol (Protocol ID: 10). | written |
+| KONTRONIK | [esc_forward_kontronik.md](esc_forward_kontronik.md) | Requires a flight-controller connection; entry blocked while armed; no protocol requirement. | UI preview |
 | OMP | [setup/esc_motors/esc_tools/omp.md](setup/esc_motors/esc_tools/omp.md) | Greyed out until the flight controller answers. Read-only while the model is armed. Lit only while the flight controller reports this ESC telemetry protocol (Protocol ID: 6). | written |
 | Scorpion | [setup/esc_motors/esc_tools/scorpion.md](setup/esc_motors/esc_tools/scorpion.md) | Greyed out until the flight controller answers. Read-only while the model is armed. Lit only while the flight controller reports this ESC telemetry protocol (Protocol ID: 4). | written |
 | XDFLY | [setup/esc_motors/esc_tools/xdfly.md](setup/esc_motors/esc_tools/xdfly.md) | Greyed out until the flight controller answers. Read-only while the model is armed. Lit only while the flight controller reports this ESC telemetry protocol (Protocol ID: 12). | written |
