@@ -5379,10 +5379,10 @@
         "mfg": {
           "kontr": {
             "PWM_min": {
-              "english": "PWM minimum",
-              "translation": "PWM minimum",
+              "english": "PWM minimum *",
+              "translation": "PWM minimum *",
               "needs_translation": false,
-              "max_length": 11
+              "max_length": 13
             },
             "act_impulse_length": {
               "english": "Actual Impulse Length",
@@ -5397,10 +5397,10 @@
               "max_length": 5
             },
             "alternate_startup": {
-              "english": "Alternate Startup",
-              "translation": "Alternate Startup",
+              "english": "Alternate Startup *",
+              "translation": "Alternate Startup *",
               "needs_translation": false,
-              "max_length": 17
+              "max_length": 19
             },
             "basic": {
               "english": "Basic",
@@ -5445,10 +5445,10 @@
               "max_length": 21
             },
             "discharge_limit": {
-              "english": "Discharge Limit",
-              "translation": "Discharge Limit",
+              "english": "Discharge Limit *",
+              "translation": "Discharge Limit *",
               "needs_translation": false,
-              "max_length": 15
+              "max_length": 17
             },
             "esc_status": {
               "english": "ESC Live Status",
@@ -5457,10 +5457,10 @@
               "max_length": 15
             },
             "extra_smooth_IU": {
-              "english": "Smooth idle up",
-              "translation": "Smooth idle up",
+              "english": "Smooth idle up *",
+              "translation": "Smooth idle up *",
               "needs_translation": false,
-              "max_length": 14
+              "max_length": 16
             },
             "flight_Mode_choice_0": {
               "english": "Sailplane",
@@ -5637,22 +5637,22 @@
               "max_length": 11
             },
             "slewrate_down": {
-              "english": "Slew Rate Down",
-              "translation": "Slew Rate Down",
+              "english": "Slew Rate Down *",
+              "translation": "Slew Rate Down *",
+              "needs_translation": false,
+              "max_length": 16
+            },
+            "slewrate_up": {
+              "english": "Slew Rate Up *",
+              "translation": "Slew Rate Up *",
               "needs_translation": false,
               "max_length": 14
             },
-            "slewrate_up": {
-              "english": "Slew Rate Up",
-              "translation": "Slew Rate Up",
-              "needs_translation": false,
-              "max_length": 12
-            },
             "startup_curr_limit": {
-              "english": "Startup current limit",
-              "translation": "Startup current limit",
+              "english": "Startup current limit *",
+              "translation": "Startup current limit *",
               "needs_translation": false,
-              "max_length": 21
+              "max_length": 23
             },
             "startuptime": {
               "english": "Startup Time",
@@ -5667,10 +5667,10 @@
               "max_length": 32
             },
             "undervoltage_behavior": {
-              "english": "Low voltage action",
-              "translation": "Low voltage action",
+              "english": "Low voltage action *",
+              "translation": "Low voltage action *",
               "needs_translation": false,
-              "max_length": 18
+              "max_length": 20
             },
             "undervoltage_behavior_choice_0": {
               "english": "Slow down",
@@ -5685,10 +5685,10 @@
               "max_length": 9
             },
             "undervoltage_cell": {
-              "english": "Cell cutoff",
-              "translation": "Cell cutoff",
+              "english": "Cell cutoff *",
+              "translation": "Cell cutoff *",
               "needs_translation": false,
-              "max_length": 11
+              "max_length": 13
             },
             "preset_target": {
               "english": "Default parameter set",
@@ -6001,6 +6001,138 @@
               "translation": "Check endpoints",
               "needs_translation": false,
               "max_length": 15
+            },
+            "loading": {
+              "english": "Reading ESC...",
+              "translation": "Reading ESC...",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "unavailable": {
+              "english": "Data unavailable",
+              "translation": "Data unavailable",
+              "needs_translation": false,
+              "max_length": 16
+            },
+            "ready": {
+              "english": "Snapshot received",
+              "translation": "Snapshot received",
+              "needs_translation": false,
+              "max_length": 17
+            },
+            "msp_error": {
+              "english": "MSP error",
+              "translation": "MSP error",
+              "needs_translation": false,
+              "max_length": 9
+            },
+            "timeout": {
+              "english": "Read timed out",
+              "translation": "Read timed out",
+              "needs_translation": false,
+              "max_length": 14
+            },
+            "incompatible": {
+              "english": "Incompatible reply",
+              "translation": "Incompatible reply",
+              "needs_translation": false,
+              "max_length": 18
+            },
+            "transport_error": {
+              "english": "Read failed",
+              "translation": "Read failed",
+              "needs_translation": false,
+              "max_length": 11
+            },
+            "disconnected": {
+              "english": "Link unavailable",
+              "translation": "Link unavailable",
+              "needs_translation": false,
+              "max_length": 16
+            },
+            "parameter_age": {
+              "english": "Param. age at capture",
+              "translation": "Param. age at capture",
+              "needs_translation": false,
+              "max_length": 21
+            },
+            "model_age": {
+              "english": "Model age at capture",
+              "translation": "Model age at capture",
+              "needs_translation": false,
+              "max_length": 20
+            },
+            "read_duration": {
+              "english": "Read duration",
+              "translation": "Read duration",
+              "needs_translation": false,
+              "max_length": 13
+            },
+            "eeprom_summary": {
+              "english": "EEPROM %s",
+              "translation": "EEPROM %s",
+              "needs_translation": false,
+              "max_length": 9
+            },
+            "alarm_warning": {
+              "english": "These alarms are programmed in the ESC. They are independent of Rotorflight alarms and are usually not useful with Rotorflight.",
+              "translation": "These alarms are programmed in the ESC. They are independent of Rotorflight alarms and are usually not useful with Rotorflight.",
+              "needs_translation": false,
+              "max_length": 127
+            },
+            "default_parameter_set": {
+              "english": "Default parameter set",
+              "translation": "Default parameter set",
+              "needs_translation": false,
+              "max_length": 21
+            },
+            "f5a_note": {
+              "english": "F5A: no K-PROG field mask documented",
+              "translation": "F5A: no K-PROG field mask documented",
+              "needs_translation": false,
+              "max_length": 36
+            },
+            "load_preset": {
+              "english": "Load Preset",
+              "translation": "Load Preset",
+              "needs_translation": false,
+              "max_length": 11
+            },
+            "preset_glider": {
+              "english": "Glider",
+              "translation": "Glider",
+              "needs_translation": false,
+              "max_length": 6
+            },
+            "preset_aircraft": {
+              "english": "Powered aircraft",
+              "translation": "Powered aircraft",
+              "needs_translation": false,
+              "max_length": 16
+            },
+            "preset_helicopter": {
+              "english": "Helicopter",
+              "translation": "Helicopter",
+              "needs_translation": false,
+              "max_length": 10
+            },
+            "preset_car": {
+              "english": "Car",
+              "translation": "Car",
+              "needs_translation": false,
+              "max_length": 3
+            },
+            "expert_settings": {
+              "english": "Expert Settings *",
+              "translation": "Expert Settings *",
+              "needs_translation": false,
+              "max_length": 17
+            },
+            "cutoff_default": {
+              "english": "Cutoff default",
+              "translation": "Cutoff default",
+              "needs_translation": false,
+              "max_length": 14
             }
           },
           "am32": {

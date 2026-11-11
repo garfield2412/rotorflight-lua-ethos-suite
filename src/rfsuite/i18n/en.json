@@ -2793,10 +2793,10 @@
           },
           "kontr": {
             "PWM_min": {
-              "english": "PWM minimum",
-              "max_length": 11,
+              "english": "PWM minimum *",
+              "max_length": 13,
               "needs_translation": false,
-              "translation": "PWM minimum"
+              "translation": "PWM minimum *"
             },
             "act_impulse_length": {
               "english": "Actual Impulse Length",
@@ -2828,11 +2828,17 @@
               "needs_translation": false,
               "translation": "These alarms belong to the ESC."
             },
-            "alternate_startup": {
-              "english": "Alternate Startup",
-              "max_length": 17,
+            "alarm_warning": {
+              "english": "These alarms are programmed in the ESC. They are independent of Rotorflight alarms and are usually not useful with Rotorflight.",
+              "max_length": 127,
               "needs_translation": false,
-              "translation": "Alternate Startup"
+              "translation": "These alarms are programmed in the ESC. They are independent of Rotorflight alarms and are usually not useful with Rotorflight."
+            },
+            "alternate_startup": {
+              "english": "Alternate Startup *",
+              "max_length": 19,
+              "needs_translation": false,
+              "translation": "Alternate Startup *"
             },
             "basic": {
               "english": "Basic",
@@ -2894,11 +2900,35 @@
               "needs_translation": false,
               "translation": "Restore Bluetooth when the motor stops"
             },
-            "discharge_limit": {
-              "english": "Discharge Limit",
-              "max_length": 15,
+            "cutoff_default": {
+              "english": "Cutoff default",
+              "max_length": 14,
               "needs_translation": false,
-              "translation": "Discharge Limit"
+              "translation": "Cutoff default"
+            },
+            "default_parameter_set": {
+              "english": "Default parameter set",
+              "max_length": 21,
+              "needs_translation": false,
+              "translation": "Default parameter set"
+            },
+            "discharge_limit": {
+              "english": "Discharge Limit *",
+              "max_length": 17,
+              "needs_translation": false,
+              "translation": "Discharge Limit *"
+            },
+            "disconnected": {
+              "english": "Link unavailable",
+              "max_length": 16,
+              "needs_translation": false,
+              "translation": "Link unavailable"
+            },
+            "eeprom_summary": {
+              "english": "EEPROM %s",
+              "max_length": 9,
+              "needs_translation": false,
+              "translation": "EEPROM %s"
             },
             "esc_status": {
               "english": "ESC Live Status",
@@ -2906,11 +2936,23 @@
               "needs_translation": false,
               "translation": "ESC Live Status"
             },
-            "extra_smooth_IU": {
-              "english": "Smooth idle up",
-              "max_length": 14,
+            "expert_settings": {
+              "english": "Expert Settings *",
+              "max_length": 17,
               "needs_translation": false,
-              "translation": "Smooth idle up"
+              "translation": "Expert Settings *"
+            },
+            "extra_smooth_IU": {
+              "english": "Smooth idle up *",
+              "max_length": 16,
+              "needs_translation": false,
+              "translation": "Smooth idle up *"
+            },
+            "f5a_note": {
+              "english": "F5A: no K-PROG field mask documented",
+              "max_length": 36,
+              "needs_translation": false,
+              "translation": "F5A: no K-PROG field mask documented"
             },
             "flight_Mode_choice_0": {
               "english": "Sailplane",
@@ -2972,6 +3014,24 @@
               "needs_translation": false,
               "translation": "Governor store"
             },
+            "incompatible": {
+              "english": "Incompatible reply",
+              "max_length": 18,
+              "needs_translation": false,
+              "translation": "Incompatible reply"
+            },
+            "load_preset": {
+              "english": "Load Preset",
+              "max_length": 11,
+              "needs_translation": false,
+              "translation": "Load Preset"
+            },
+            "loading": {
+              "english": "Reading ESC...",
+              "max_length": 14,
+              "needs_translation": false,
+              "translation": "Reading ESC..."
+            },
             "max_bec_current": {
               "english": "Alarm max BEC current",
               "max_length": 21,
@@ -3020,6 +3080,12 @@
               "needs_translation": false,
               "translation": "Min. input voltage"
             },
+            "model_age": {
+              "english": "Model age at capture",
+              "max_length": 20,
+              "needs_translation": false,
+              "translation": "Model age at capture"
+            },
             "motor": {
               "english": "Motor",
               "max_length": 5,
@@ -3031,6 +3097,12 @@
               "max_length": 16,
               "needs_translation": false,
               "translation": "Motor resistance"
+            },
+            "msp_error": {
+              "english": "MSP error",
+              "max_length": 9,
+              "needs_translation": false,
+              "translation": "MSP error"
             },
             "name": {
               "english": "KONTRONIK",
@@ -3050,11 +3122,23 @@
               "needs_translation": false,
               "translation": "P-Gain"
             },
+            "parameter_age": {
+              "english": "Param. age at capture",
+              "max_length": 21,
+              "needs_translation": false,
+              "translation": "Param. age at capture"
+            },
             "pole_number": {
               "english": "Pole Count",
               "max_length": 10,
               "needs_translation": false,
               "translation": "Pole Count"
+            },
+            "preset_aircraft": {
+              "english": "Powered aircraft",
+              "max_length": 16,
+              "needs_translation": false,
+              "translation": "Powered aircraft"
             },
             "preset_car": {
               "english": "Car",
@@ -3079,6 +3163,18 @@
               "max_length": 3,
               "needs_translation": false,
               "translation": "F5A"
+            },
+            "preset_glider": {
+              "english": "Glider",
+              "max_length": 6,
+              "needs_translation": false,
+              "translation": "Glider"
+            },
+            "preset_helicopter": {
+              "english": "Helicopter",
+              "max_length": 10,
+              "needs_translation": false,
+              "translation": "Helicopter"
             },
             "preset_load": {
               "english": "Load preset",
@@ -3140,6 +3236,18 @@
               "needs_translation": false,
               "translation": "Endpoints valid"
             },
+            "read_duration": {
+              "english": "Read duration",
+              "max_length": 13,
+              "needs_translation": false,
+              "translation": "Read duration"
+            },
+            "ready": {
+              "english": "Snapshot received",
+              "max_length": 17,
+              "needs_translation": false,
+              "translation": "Snapshot received"
+            },
             "rotation": {
               "english": "Reverse Rotation",
               "max_length": 16,
@@ -3153,22 +3261,22 @@
               "translation": "RPM Control"
             },
             "slewrate_down": {
-              "english": "Slew Rate Down",
-              "max_length": 14,
+              "english": "Slew Rate Down *",
+              "max_length": 16,
               "needs_translation": false,
-              "translation": "Slew Rate Down"
+              "translation": "Slew Rate Down *"
             },
             "slewrate_up": {
-              "english": "Slew Rate Up",
-              "max_length": 12,
+              "english": "Slew Rate Up *",
+              "max_length": 14,
               "needs_translation": false,
-              "translation": "Slew Rate Up"
+              "translation": "Slew Rate Up *"
             },
             "startup_curr_limit": {
-              "english": "Startup current limit",
-              "max_length": 21,
+              "english": "Startup current limit *",
+              "max_length": 23,
               "needs_translation": false,
-              "translation": "Startup current limit"
+              "translation": "Startup current limit *"
             },
             "startuptime": {
               "english": "Startup Time",
@@ -3392,11 +3500,29 @@
               "needs_translation": false,
               "translation": "Timing (deg)"
             },
-            "undervoltage_behavior": {
-              "english": "Low voltage action",
-              "max_length": 18,
+            "timeout": {
+              "english": "Read timed out",
+              "max_length": 14,
               "needs_translation": false,
-              "translation": "Low voltage action"
+              "translation": "Read timed out"
+            },
+            "transport_error": {
+              "english": "Read failed",
+              "max_length": 11,
+              "needs_translation": false,
+              "translation": "Read failed"
+            },
+            "unavailable": {
+              "english": "Data unavailable",
+              "max_length": 16,
+              "needs_translation": false,
+              "translation": "Data unavailable"
+            },
+            "undervoltage_behavior": {
+              "english": "Low voltage action *",
+              "max_length": 20,
+              "needs_translation": false,
+              "translation": "Low voltage action *"
             },
             "undervoltage_behavior_choice_0": {
               "english": "Slow down",
@@ -3411,10 +3537,10 @@
               "translation": "Shut down"
             },
             "undervoltage_cell": {
-              "english": "Cell cutoff",
-              "max_length": 11,
+              "english": "Cell cutoff *",
+              "max_length": 13,
               "needs_translation": false,
-              "translation": "Cell cutoff"
+              "translation": "Cell cutoff *"
             }
           },
           "omp": {

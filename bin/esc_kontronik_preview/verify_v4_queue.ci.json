@@ -1,0 +1,7 @@
+{
+  "id": "kbidir-v4-queue",
+  "name": "KBiDir V4 cyclic collection",
+  "step": "Check V4-r3 cyclic collection, loss recovery, snapshot replacement and bounded deadline",
+  "script": "bin/esc_kontronik_preview/verify_v4_queue.lua",
+  "rationale": "Uses kbidir-msp217-v4-r3 96-byte no-version vectors (signature/type/status, 14 pairs per block) with strict zero padding. Empty direct requests, one pending request, missing middle block recovered in a later cycle, repeated metadata preserves partial pairs, snapshot IDs never mix, duplicate validation and 30-second page-local deadline. Local editor remains separate from immutable received data; Save/presets/MSP218 remain disabled. Capture age is separate from retrieval duration. Synthetic link timings are not RF qualification."
+}

@@ -815,13 +815,7 @@ local function runChecks()
     for _, page in ipairs(pages) do
       local source = readFile(SUITE .. "/app/pages/" .. page .. ".lua")
       local codecName = source:match('requireModule%("(lib/msp_esc_parameters_[%w_]+%.lua)"%)')
-      if page == "esc_forward_kontronik" then
-        -- UI-only preview has no parameter transport to signature-check.
-        -- Remove this exception when its firmware integration is implemented.
-        check("Kontronik preview has no codec or MSP request path",
-          codecName == nil and not source:find("lib/bus.lua", 1, true)
-            and not source:find("msp.request", 1, true))
-      elseif not codecName then
+      if not codecName then
         ungated[#ungated + 1] = page .. " (no codec)"
       else
         local key = "rfsuite." .. codecName:gsub("/", "."):gsub("%.lua$", "")
@@ -832,7 +826,7 @@ local function runChecks()
         end
       end
     end
-    check(string.format("all %d ESC tool pages have a signature gate or are UI-only", #pages),
+    check(string.format("all %d ESC tool pages have a signature gate", #pages),
       #ungated == 0, table.concat(ungated, ", "))
   end
 

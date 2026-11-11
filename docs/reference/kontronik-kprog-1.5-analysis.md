@@ -375,3 +375,34 @@ Stateless codec/capability modules may be cached. Alarm unlock and preset target
 - Endpoints are checked in both pulse directions, at spacing boundaries and with the brake on/off.
 
 The original APK investigation was read-only. The subsequent local dependency implementation described in section 10 changes the preview only; no communication implementation or firmware-dependent capability claim is implied.
+
+## 13. Expert-only widget classification verified for the current Suite
+
+On 2026-11-11 the retained decompiled A6/A11 evidence was inspected directly.
+`OnClick_BtnExpert` toggles the visibility of `idcBatteryExperts` on battery tab1
+and `idcMotorExperts` on motor tab2. Both XML containers start `visibility=gone`.
+It also calls `maskUI(0)` unless the all-locked mask5 is active. The Suite does
+not copy that mask-reset or any Android write callback.
+
+| XML container | APK interactive widget | Suite expert-only field |
+| --- | --- | --- |
+| battery_layout / idcBatteryExperts | idcRBUndervoltageSlowDown/ShutDown | undervoltage_behavior |
+| battery_layout / idcBatteryExperts | idcEBCellVoltage | undervoltage_cell (all three chemistry targets) |
+| battery_layout / idcBatteryExperts | idcCBDischargeLimiter, idcEBDischargeLimit | discharge_limit, zero=off; no extra limiter boolean |
+| motor_layout / idcMotorExperts | idcEBPWMmin | PWM_min |
+| motor_layout / idcMotorExperts | idcEBSlewRatePos / idcEBSlewRateNeg | slewrate_up / slewrate_down |
+| motor_layout / idcMotorExperts | idcCBExtraSmoothIdleUp | extra_smooth_IU |
+| motor_layout / idcMotorExperts | idcCBAlternateStartup | alternate_startup |
+| motor_layout / idcMotorExperts | idcEBStartupCurrentLimit | startup_curr_limit |
+
+These nine fields map to existing unique received pointers/status bits. Their
+classification is based on containment in initially hidden expert groups, not
+on whether a field seems technically advanced. The governor gain/resistance,
+brake, RC endpoints, chemistry selection, gearing and alarm tab are outside
+these groups and stay standard, with their existing dependencies/locks.
+
+Unresolved features are not added: telemetry-port selectors in frei0, model-specific
+expert features outside these groups, internal governor helper parameters and
+unsupported device layouts. The broad APK model mask is not a capability matrix.
+The local Suite switch cannot grant permission to unknown layouts or missing /
+ambiguous fields. No preset preview is currently exposed and none is reset.
