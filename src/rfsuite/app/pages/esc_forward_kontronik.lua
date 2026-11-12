@@ -9,6 +9,7 @@ local fieldLayout = requireModule("app/field_layout.lua")
 local codec = requireModule("lib/msp_esc_parameters_kontronik.lua")
 
 local T = {
+  bluetooth_hint = "@i18n(app.modules.esc_tools.mfg.kontr.bluetooth_hint)@",
   default_parameter_set = "@i18n(app.modules.esc_tools.mfg.kontr.default_parameter_set)@",
   f5a_note = "@i18n(app.modules.esc_tools.mfg.kontr.f5a_note)@",
   load_preset = "@i18n(app.modules.esc_tools.mfg.kontr.load_preset)@",
@@ -133,6 +134,10 @@ local FIELDS = {
   {key = "gear_ratio", label = T["gear_ratio"]},
   {key = "brake", label = T["brake"], choices = {[0] = "@i18n(app.modules.governor.tbl_off)@", [1] = "@i18n(app.modules.governor.tbl_on)@"}},
   {key = "prop_brake", label = T["prop_brake"], choices = {[0] = "@i18n(app.modules.governor.tbl_off)@", [1] = "@i18n(app.modules.governor.tbl_on)@"}},
+  {key = "brake_pwm_min", label = "Min brake PWM", suffix = "%"},
+  {key = "brake_pwm_max", label = "Max brake PWM", suffix = "%"},
+  {key = "brake_slew_up", label = "Brake ramp up", suffix = "ms"},
+  {key = "brake_slew_down", label = "Brake ramp down", suffix = "ms"},
   {key = "rpm_ctl", label = T["rpm_ctl"], choices = {[0] = "@i18n(app.modules.governor.tbl_off)@", [1] = "@i18n(app.modules.governor.tbl_on)@"}},
   {key = "how_adj_max_rpm", label = T["how_adj_max_rpm"], choices = {[0] = T.how_adj_max_rpm_choice_0, [1] = T.how_adj_max_rpm_choice_1}},
   {key = "max_rpm", label = T["max_rpm"]},
@@ -174,6 +179,9 @@ local EXPERT_KEYS = {undervoltage_behavior=true,undervoltage_cell=true,discharge
 local ALARM_KEYS = {max_discharge=true,min_input_voltage=true,max_motor_current=true,
   max_esc_temp=true,max_bec_temp=true,max_bec_current=true}
 local EDIT_META = {
+  brake_pwm_min = {min=0,max=100}, brake_pwm_max = {min=0,max=100},
+  brake_slew_up = {min=100,max=10000,step=100},
+  brake_slew_down = {min=100,max=10000,step=100},
   discharge_limit = {min=0,max=1000,decimals=1},
   pole_number = {min=2,max=100,step=2}, gear_ratio = {min=100,max=65535,decimals=2},
   max_rpm = {min=0,max=1000000,step=100}, startuptime = {min=4000,max=60000,decimals=3,step=1000},
@@ -189,18 +197,48 @@ local EDIT_META = {
 local CUTOFF_META = {[0]={min=700,max=1200,step=100,default=800},[1]={min=2700,max=3500,step=100,default=3000},[2]={min=1800,max=2600,step=100,default=2300}}
 -- Exact captured layouts only; names alone never grant a capability.
 local ALARM_LAYOUTS = {["KOLIBRI140+LV"]={count=41,version=0x0402},["KOSMIK200+HV"]={count=39,version=0x0401}}
-local DEPENDS = {prop_brake="brake", how_adj_max_rpm="rpm_ctl", max_rpm="rpm_ctl",
+local PROPORTIONAL_FIELDS = {brake_pwm_min=true,brake_pwm_max=true}
+local DEPENDS = {prop_brake="brake",brake_pwm_min="brake",brake_pwm_max="brake",
+  brake_slew_up="brake",brake_slew_down="brake", how_adj_max_rpm="rpm_ctl", max_rpm="rpm_ctl",
   startuptime="rpm_ctl", ["p-gain"]="rpm_ctl", motor_resist="rpm_ctl"}
 -- Additional local UI restrictions; never device permissions or preset defaults.
 local PREVIEW_CHOICES = {{"--",0},{T.preset_glider,2},{T.preset_aircraft,3},
   {T.preset_helicopter,4},{"F5A",5},{T.preset_car,6}}
-local PREVIEW_GROUPS = {brake="brake",prop_brake="brake",rpm_ctl="governor",
+local PREVIEW_GROUPS = {brake="brake",prop_brake="brake",
+  brake_pwm_min="brake",brake_pwm_max="brake",brake_slew_up="brake",brake_slew_down="brake",rpm_ctl="governor",
   how_adj_max_rpm="governor",max_rpm="governor",startuptime="governor",
   ["p-gain"]="governor",motor_resist="governor",slewrate_up="ramp",
   slewrate_down="ramp",fwd_bckwd="reverse",brake_position="endpoint"}
 local PREVIEW_MASKS = {
   [2]={governor=true,reverse=true}, [3]={reverse=true},
   [4]={brake=true,ramp=true,reverse=true,endpoint=true}, [6]={governor=true},
+}
+-- K-PROG A10 proves codes0..6 only. Manual beep positions and K-KONFIG
+-- help ordering are not EEPROM codes. No mapping for frei1 is established.
+local TELEMETRY_NAMES = {[0]="Off",[1]="KONTRONIK",[2]="Graupner",[3]="Futaba",
+  [4]="Multiplex",[5]="Mikado",[6]="Jeti"}
+local TELEMETRY_FIELDS = {
+  {key="telemetry_front",label="Front",shift=0,other="telemetry_side",choices={}},
+  {key="telemetry_side",label="Side",shift=8,other="telemetry_front",choices={}},
+}
+for _,spec in ipairs(TELEMETRY_FIELDS) do
+  for value=0,6 do
+    if spec.shift==0 or value~=3 then spec.choices[#spec.choices+1]={TELEMETRY_NAMES[value],value} end
+  end
+end
+local PHYSICAL_PORT_LABELS = {"Front","Side","Middle"}
+local UNKNOWN_PORT_LABELS = {"Port 1","Port 2","Port 3"}
+local TWO_PORTS = {"Front","Side"}
+local THREE_PORTS = {"BEC side","LED side","Middle"}
+-- Physical layouts only; these names grant no EEPROM decoding/edit permission.
+local TELEMETRY_MODELS = {
+  ["KOLIBRI140+LV"]=TWO_PORTS,
+  ["KOLIBRI 140 LV-I"]=TWO_PORTS,["KOLIBRI 140 HV-I"]=TWO_PORTS,
+  ["KOLIBRI 60 LV-I"]={"Front"},["KOLIBRI 90 LV-I"]={"Front"},["KOLIBRI 90 HV-I"]={"Front"},
+  ["KOSMIK 170 HV-I"]=THREE_PORTS,["KOSMIK 210 HV-I"]=THREE_PORTS,
+  ["COOL KOSMIK 170 HV-I"]=THREE_PORTS,["COOL KOSMIK 210 HV-I"]=THREE_PORTS,
+  ["COOL KOSMIK 250 HV-I"]=THREE_PORTS,["DuoCOOL KOSMIK 300 HV-I"]=THREE_PORTS,
+  ["WaterCOOL KOSMIK 300 HV-I"]=THREE_PORTS,
 }
 local function disabledPreset() end
 
@@ -245,12 +283,15 @@ local function open(opts)
   local snapshot, reader
   local alarmEnabled, alarmDialog, alarmSwitch, alarmSwitchEnabled = false, nil, nil, nil
   local expertEnabled,expertSwitch,expertSwitchEnabled,deviceSupported=false,nil,nil,false
+  local telemetrySupported=false
   local preview=0
   local previewSwitch,previewSwitchEnabled
   local cutoffMin,cutoffMax
   local gearConfirmed=false
   local gearDialog,gearProposal
   local gearEpoch=0
+  local motorOpenOnBuild=false
+  local rebuildFocusKey
   local building=false
   local cutoffDefaultField,cutoffDefaultText
   local rcField,rcText
@@ -270,10 +311,15 @@ local function open(opts)
     -- Car grants local draft editing only; no active ESC preset is inferred
     -- and Expert must not bypass an absent or different preview target.
     if key=="fwd_bckwd" and preview~=6 then return false end
+    if key=="telemetry_front" or key=="telemetry_side" then
+      return telemetrySupported and TELEMETRY_NAMES[draft[key]]~=nil
+        and (key~="telemetry_side" or draft[key]~=3)
+    end
     local mask=PREVIEW_MASKS[preview]
     if mask and mask[PREVIEW_GROUPS[key]] then return false end
     if EXPERT_KEYS[key] and not expertEnabled then return false end
     if ALARM_KEYS[key] and (not alarmEnabled or not alarmCapabilities[key]) then return false end
+    if PROPORTIONAL_FIELDS[key] and draft.prop_brake~=1 then return false end
     local dependency=DEPENDS[key]
     if dependency and draft[dependency]~=1 then return false end
     if key=="max_rpm" and draft.how_adj_max_rpm~=1 then return false end
@@ -433,6 +479,10 @@ local function open(opts)
         else
           valid=valid and (rangeValid(key,value) or value==baseline[key])
           if valid and key=="pole_number" then valid=value%2==0 end
+          if valid and value~=baseline[key] then
+            if key=="brake_pwm_min" and draft.brake_pwm_max~=nil then valid=value<=draft.brake_pwm_max end
+            if key=="brake_pwm_max" and draft.brake_pwm_min~=nil then valid=value>=draft.brake_pwm_min end
+          end
         end
         if not valid then draft[key]=previous[key]
         elseif key=="gear_ratio" and not gearConfirmed then
@@ -443,6 +493,27 @@ local function open(opts)
         end
       end
     end
+    for _,spec in ipairs(TELEMETRY_FIELDS) do
+      local key=spec.key
+      if draft[key]~=previous[key] then
+        local value=draft[key]
+        local valid=editable(key) and type(value)=="number" and value%1==0
+          and TELEMETRY_NAMES[value]~=nil and (spec.shift==0 or value~=3)
+          and (value==0 or value~=draft[spec.other])
+        if valid then
+          -- Replace exactly this byte, retaining the other port and all upper bits.
+          draft.telemetry_word=(draft.telemetry_word & ~(0xFF<<spec.shift)) | (value<<spec.shift)
+        else draft[key]=previous[key] end
+      end
+    end
+    if draft.rpm_ctl~=previous.rpm_ctl then
+      -- Local, typed intentions only. Do not copy K-PROG's read-time writes.
+      draft.governor_adjustments,draft.governor_adjustment_error=codec.planGovernorAdjustments(snapshot,draft.rpm_ctl)
+      rebuildFocusKey="rpm_ctl"
+    elseif draft.brake~=previous.brake then rebuildFocusKey="brake"
+    elseif draft.prop_brake~=previous.prop_brake then rebuildFocusKey="prop_brake"
+    elseif draft.how_adj_max_rpm~=previous.how_adj_max_rpm then rebuildFocusKey="how_adj_max_rpm" end
+    if rebuildFocusKey then needsBuild=true;motorOpenOnBuild=true end
     local chemistryChanged=false
     local oldChemistry=previous.battery_type
     if draft.battery_type~=oldChemistry then
@@ -493,8 +564,8 @@ local function open(opts)
     end
     return tileGrid.fitText(name,summaryWidth-suffixWidth,FONT_STD)..suffix
   end
-  local function textLine(text)
-    local line=form.addLine("")
+  local function textLine(text,parent)
+    local line=parent and parent:addLine("") or form.addLine("")
     local slot=form.getFieldSlots(line,{0})[1]
     form.addStaticText(line,{x=0,y=slot.y,w=summaryWidth,h=slot.h},text,LEFT)
   end
@@ -509,8 +580,8 @@ local function open(opts)
     previewSwitch,previewSwitchEnabled=nil,nil
   end
   local function invalidate(nextState)
-    clearGearConfirmation();gearConfirmed=false
-    closeAlarmNotice();alarmEnabled=false;expertEnabled=false;deviceSupported=false;preview=0
+    clearGearConfirmation();gearConfirmed=false;motorOpenOnBuild=false;rebuildFocusKey=nil
+    closeAlarmNotice();alarmEnabled=false;expertEnabled=false;deviceSupported=false;telemetrySupported=false;preview=0
     epoch=epoch+1
     if reader then reader:cancel();reader=nil end
     snapshot=nil;state=nextState;busy=false;needsBuild=true
@@ -542,6 +613,15 @@ local function open(opts)
           -- Rated motor/BEC currents are not part of this contract: do not invent their limits.
           if key~="max_motor_current" and key~="max_bec_current" and draft[key]~=nil then alarmCapabilities[key]=true end
         end
+      end
+      local ports=data.modelAvailable and TELEMETRY_MODELS[data.model]
+      local word=data.byPointer[0x2036]
+      telemetrySupported=deviceSupported and data.model=="KOLIBRI140+LV" and word~=nil
+      if ports==TWO_PORTS and data.model=="KOLIBRI140+LV" and word~=nil then
+        draft.telemetry_word=word
+        draft.telemetry_front=word & 0xFF;draft.telemetry_side=(word>>8) & 0xFF
+        previous.telemetry_word=word
+        previous.telemetry_front=draft.telemetry_front;previous.telemetry_side=draft.telemetry_side
       end
       busy,state,needsBuild=false,"ready",true
     end,function(kind)
@@ -592,7 +672,28 @@ local function open(opts)
     for i=1,#FIELDS do
       local spec=FIELDS[i]
       if spec.group then
-        panel=form.addExpansionPanel(spec.group);panel:open(false)
+        if spec.group==T.esc_status then
+          local telemetryPanel=form.addExpansionPanel("Telemetry ports");telemetryPanel:open(false)
+          local ports=snapshot and snapshot.modelAvailable and TELEMETRY_MODELS[snapshot.model]
+          for portIndex=1,3 do
+            local fitted=ports and ports[portIndex]~=nil
+            local label=ports and (ports[portIndex] or PHYSICAL_PORT_LABELS[portIndex]) or UNKNOWN_PORT_LABELS[portIndex]
+            local portSpec=TELEMETRY_FIELDS[portIndex]
+            local value
+            if fitted and portSpec then value=draft[portSpec.key] end
+            if fitted and telemetrySupported and value~=nil and TELEMETRY_NAMES[value] and (portIndex==1 or value~=3) then
+              fieldLayout.buildSingle(runtime,label,{key=portSpec.key,choices=portSpec.choices},telemetryPanel)
+            else
+              local display=ports and not fitted and "Not fitted" or "Not readable"
+              if value~=nil then
+                display=TELEMETRY_NAMES[value] or string.format("Raw 0x%02X",value)
+              end
+              form.addStaticText(telemetryPanel:addLine(label),nil,display)
+            end
+          end
+        end
+        panel=form.addExpansionPanel(spec.group);panel:open(spec.group==T.motor and motorOpenOnBuild)
+        if spec.group==T.bluetooth then textLine(T.bluetooth_hint,panel) end
         if spec.group==T.rc then rcField=form.addStaticText(panel:addLine(T.rc_check),nil,"--") end
         if spec.group==T.alarm then
           alarmSwitch=form.addBooleanField(panel:addLine(T.alarm_edit),nil,getAlarmEnabled,setAlarmEnabled)
@@ -617,7 +718,9 @@ local function open(opts)
             end
           end
         end
-      else
+      elseif not ((DEPENDS[spec.key] and draft[DEPENDS[spec.key]]==0)
+        or (PROPORTIONAL_FIELDS[spec.key] and draft.prop_brake==0)
+        or (spec.key=="max_rpm" and draft.how_adj_max_rpm==0)) then
         local value=draft[spec.key]
         local meta=metaFor(spec.key)
         -- Ethos number widgets use signed integer ticks. Preserve larger raw U32
@@ -647,7 +750,12 @@ local function open(opts)
       end
     end
     building=false
-    updateStates();needsBuild=false
+    updateStates();needsBuild=false;motorOpenOnBuild=false
+    -- ETHOS scrolls the focused field into view. Restore the triggering control
+    -- after rebuilding, rather than leaving focus/scroll at the page header.
+    local focus=rebuildFocusKey and controls[rebuildFocusKey]
+    rebuildFocusKey=nil
+    if focus then focus:focus() end
   end
   local function wakeup()
     if disposed then return end

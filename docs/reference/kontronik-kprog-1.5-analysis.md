@@ -259,7 +259,7 @@ After real execution, the Suite must reread every parameter/endpoint and invalid
 
 For KOLIBRI/UHV, `frei0` is not an arbitrary unused zero: its lower/upper bytes configure two telemetry outputs. The application tries to prevent assigning the same non-off telemetry type to both ports. Futaba is provided only for the first port and hidden for UHV. The second KOLIBRI port is displayed only for the recognised 140 variant. [A10]
 
-The Suite does not offer these selections. This analysis does not itself require new controls, but future EEPROM writes must preserve those values. Serialising only visible fields and zeroing the rest would be incorrect.
+The Suite now offers local front/side selection only for the captured KOLIBRI140+LV / EEPROM0402 layout. Future EEPROM writes must preserve these values; serialising only visible fields and zeroing the rest would be incorrect.
 
 Identification uses the reported controller name:
 
@@ -401,8 +401,97 @@ on whether a field seems technically advanced. The governor gain/resistance,
 brake, RC endpoints, chemistry selection, gearing and alarm tab are outside
 these groups and stay standard, with their existing dependencies/locks.
 
-Unresolved features are not added: telemetry-port selectors in frei0, model-specific
-expert features outside these groups, internal governor helper parameters and
+Unresolved features are not added: model-specific telemetry mappings beyond the
+captured KOLIBRI layout, expert features outside these groups, internal governor helper parameters and
 unsupported device layouts. The broad APK model mask is not a capability matrix.
 The local Suite switch cannot grant permission to unknown layouts or missing /
-ambiguous fields. No preset preview is currently exposed and none is reset.
+ambiguous fields. The selected local preset preview remains in effect when Expert is toggled.
+
+
+## Telemetry port implementation evidence (2026-11-12)
+
+K-PROG A10 `OnClick_RBTelKonfig1/2` explicitly encodes Off0, KONTRONIK1,
+Graupner2, Futaba3, Multiplex4, Mikado5 and Jeti6. The second handler has no
+Futaba branch. Its masks preserve the opposite byte of frei0. Resource strings
+AlarmTelKonfig1/2 identify the first as front and the second as side; UHV strings
+instead name BEC-side/LED-side. These are family-dependent physical labels,
+not proof that an arbitrary KOSMIK layout uses the same parameter pointer.
+The shared KOLIBRI E-frame has value256 at pointer8246 (0x2036); EEPROM0402,
+41 pairs. The reconstructed KOSMIK200+HV /0401 E-frame has39 pairs and no frei0
+or frei1 entries. It cannot establish any telemetry output code mapping.
+
+Manufacturer evidence:
+- [KOLIBRI LV-I/HV-I manual, October2022, telemetry section](https://kontronik.com/wp-content/uploads/2023/03/Anleitung_KOLIBRI-1.pdf):
+  two telemetry ports on140 LV-I/HV-I; Futaba is front-only. Other listed LV-I/HV-I
+  variants have the front connector. Modern protocols listed in this manual do
+  not establish EEPROM raw codes for PowerBox or FrSky.
+- [KOSMIK manual, October2022, section8](https://kontronik.com/wp-content/uploads/2023/03/Anleitung_KOSMIK-1-1.pdf):
+  integrated telemetry is specific to documented HV-I variants. Physical ports
+  are BEC-side, LED-side and middle. Futaba/FrSky use the middle connector.
+
+Static K-KONFIG evidence (no executable launch): read UTF-16LE strings from
+`C:/Program Files (x86)/Kontronik/KKonfig_V1.3.11.exe`.
+SHA256: 59675dd9b603ad2b86b7435965f5f9f5ac7331ae8eaf7748cf8d33dd53fed5ee.
+The help headed `Telemetrieport Mitte` lists Aus, Futaba, Frsky. Other help
+strings label Telemetrieport BEC-Seite/LED-Seite and describe front/side variants.
+Neither help ordering nor mode-programming beep numbers establish EEPROM codes.
+No reliable evidence maps frei1 (0x2038) to the middle connector.
+
+Runtime policy: only the captured KOLIBRI140+LV layout can edit the two decoded
+bytes. Exact documented model names can show physical ports without granting
+parameter capability; unknown names show Not readable instead of guessed ports.
+KOSMIK HV-I physical rows are read-only until concrete UART/layout evidence exists.
+Older KOSMIK, UHV/250-family identification in K-PROG, KOLIBRIX, alternative wire
+model spellings, PowerBox/FrSky raw codes and other EEPROM versions remain open.
+
+
+### RPM Off dependency recheck (2026-11-12)
+
+Rechecked MainActivity.updateUI lines2355-2393 and motor_layout.xml containment.
+Only idcRPMcontrolSettings is hidden by Drehzahlregelung=false: target source,
+max RPM, governor startup, P gain and motor resistance. idcMotorExperts is its
+sibling, not its child: minimum PWM, PWM rise/fall, soft start, alternate startup
+and startup current remain independent of that visibility condition. maskUI also
+applies application-type rules to ramps; these do not establish RPM-off rules.
+Expert cannot reveal the five dependent fields while RPM Control is Off.
+Do not infer additional governor dependencies from labels such as idle-up.
+
+
+## Additional brake fields (2026-11-12)
+
+Mapped APK KOLIBRI extractData indices6/28/29/30 to captured pointer/value pairs:
+Slew_Brake_Pos0x200E=500ms, Slew_Brake_Neg0x203E=105ms,
+MinBremsPWM0x3040=81 and MaxBremsPWM0x3042=4055. The Suite keys are
+brake_slew_up, brake_slew_down, brake_pwm_min and brake_pwm_max.
+MainActivity.updateUI uses floor((raw+20)*100/4096) for both brake PWM values.
+They belong to idcBrakeSettings, outside the expert group; no additional
+proportional-brake visibility condition is imposed.
+
+Visually checked manufacturer Bluetooth serial protocol2026-04-01 pages8,10,11:
+PWM raw bounds0..4096 (display0..100%, resolution1%) and both brake ramps
+100..10000ms in100ms increments. The older APK edit handlers clamp PWM2..100%
+and ramps100..60000ms. The Suite uses PDF bounds for new local edits, retains
+received outliers and documents the discrepancy pending real programming tests.
+
+
+### Local governor adjustment preparation (2026-11-12)
+
+The Suite now models adjustData as planGovernorAdjustments(snapshot,mode), invoked
+only after an accepted local rpm_ctl transition. It records mismatch commands in
+APK order with pointer, command value/unit and captured observedRaw. The helper
+requires unique0x3020/0x201C/0x201E plus readable RPM status before returning a plan.
+This does not copy the APK reception-time writes or its single-message queue.
+No speculative percent-to-raw conversion is used. Recompute against capture on
+each toggle rather than applying an intermediate synthetic EEPROM representation.
+Missing/ambiguous data yields unavailable; actual atomic writes and authoritative
+readback remain deferred to a future firmware contract.
+
+
+### Further static K-KONFIG telemetry findings (2026-11-12)
+
+See [K-KONFIG1.3.11 telemetry handler analysis](kontronik-kkonfig-1.3.11-telemetry-analysis.md).
+The executable contains explicit PowerBox7/FrSky8 assignments, a KOSMIKIND byte-order
+variant and a KOSMIK-family250 three5-bit layout with Middle in the same word.
+These findings supersede the earlier statement that only help-string evidence
+was available for Middle. They do not yet prove the new UART model/version and
+pointer correspondence; no additional Suite model permission is enabled.

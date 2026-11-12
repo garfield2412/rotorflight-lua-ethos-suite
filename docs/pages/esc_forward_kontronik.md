@@ -58,7 +58,7 @@ starts another read. Long model names are shortened for display only.
 ## Simulator
 
 The simulator uses a synthetic KOLIBRI140+LV demo based on the capture: EEPROM
-0402, 41 parameter pairs, BEC 5500 mV, ten poles and ESC gear ratio 1:1 (raw 100 at `0x204A`). Its cutoff
+0402, 41 parameter pairs, BEC 5500 mV, ten poles, Brake Off and ESC gear ratio 1:1 (raw 100 at `0x204A`). Its cutoff
 examples are NiMH 800 mV, LiPo 3000 mV and LiFePo 2300 mV; the minimum-input
 alarm example is 14300 mV. These demo values are within known limits. The checksum
 word is adjusted by the additive delta; this is not an authenticated ESC read.
@@ -127,8 +127,8 @@ raw snapshot. BitStatus ambiguity also hides every field derived from that word.
 | Max Position | Received throttle endpoint in microseconds. |
 | Brake Position | Received brake endpoint in microseconds. |
 | BEC Voltage | Received millivolts. |
-| Bluetooth: Disable after first run | BitStatus bit 18. |
-| Bluetooth: Disable while running | BitStatus bit 19. |
+| Bluetooth: Re-enable with button | BitStatus bit 18. |
+| Bluetooth: Re-enable at motor stop | BitStatus bit 19. |
 | ESC model | Independently available ASCII identification. |
 | EEPROM version | Four raw BCD hexadecimal digits, distinct from payload version. |
 | Param. age at capture | Parameter source age at the frozen capture, in milliseconds. |
@@ -144,7 +144,11 @@ raw snapshot. BitStatus ambiguity also hides every field derived from that word.
 | Alarm max BEC current | Received mA threshold. |
 
 Groups remain Basic, Motor, Remote Control, Bluetooth, ESC Live Status and Alarm.
-Inactive brake/governor settings remain visible but disabled; no
+Brake Off hides Proportional brake; switching On restores its retained local
+value. The separate RC Brake Position remains visible for endpoint validation.
+With RPM Control Off, its
+source, maximum RPM, startup, gain and resistance fields are hidden; switching On
+restores their retained local values. No
 write permission or model-specific programming capability is inferred from their presence.
 ESC alarm thresholds do not change Rotorflight or Suite alert settings.
 
@@ -195,7 +199,8 @@ signed number-widget range use static text, including after chemistry changes.
 The original received value can
 be restored, but a different new edit outside the bounds or step is rejected.
 Braking/governor transitions preserve disabled child values and never
-perform the APK's automatic internal governor adjustments.
+write the APK's internal governor adjustments. Explicit RPM Control changes
+prepare local typed helper intentions only, as described below.
 
 **RC endpoint check** evaluates Off, Max and Brake jointly. Off and Max must be
 500–2500 us and at least 100 us apart. For increasing pulses Off must be at least
@@ -284,8 +289,8 @@ drafts from the received snapshot. Standard-field edits, the selected chemistry
 and separate alarm draft/opt-in remain intact. Re-enabling cannot resurrect hidden
 edits. Reload, close, disconnect and arming reset expert mode; locked/stale setters
 are ignored. This switch sends no transport request and never enables Save,
-Load Preset or MSP218. Internal governor helpers and telemetry-output expert
-features remain unavailable pending authoritative variant-specific mappings.
+Load Preset or MSP218. Governor helper intentions are prepared locally as described
+below; real execution and further telemetry-output mappings remain unavailable.
 
 ### Cell cutoff: received value versus default
 
@@ -313,3 +318,125 @@ configured in the flight controller. Neither ESC nor FC gearing is written.
 Reload, close, disconnect and arming reset acknowledgment, discard pending confirmation and ignore stale
 actions. The dialog and its Confirm/Cancel buttons use English; localization is deferred
 to the final i18n pass.
+
+
+## Telemetry ports
+
+The **Telemetry ports** section follows **Bluetooth interface** and separates physical connector evidence from
+EEPROM decoding. English labels are temporary until the final localization pass.
+
+For the captured **KOLIBRI140+LV / EEPROM0402 /41-pair** layout, **Front** reads
+bits0..7 and **Side** bits8..15 of the unique pointer0x2036 (`frei0`). The captured
+word0x0100 therefore means Front **Off**, Side **KONTRONIK**. Choices use only
+K-PROG-proven raw codes: Off0, KONTRONIK1, Graupner2, Futaba3 (front only),
+Multiplex4, Mikado5 and Jeti6. Duplicate active protocols are rejected in both
+setters; multiple Off ports are permitted. Changes affect only the local draft,
+retain the other byte and upper U32 bits, and never alter the captured snapshot.
+Expert and alarm switches grant no additional port capabilities.
+
+Unknown codes are shown as `Raw 0xNN` without an editable selection and remain
+unchanged when the other port is edited. Missing/ambiguous pointers, unsupported
+EEPROM/layouts and unknown models cannot grant editing. An unavailable mapping
+shows **Not readable**. Reload/disconnect/arming/close follow the normal draft
+cleanup rules. Save remains disabled and no MSP218 is sent.
+
+Documented KOLIBRI140 LV-I/HV-I models can show Front/Side; documented60/90 LV-I
+and90 HV-I can show Front. Their wire-name/version associations require captures
+before editing is enabled. Futaba is never offered on Side.
+Documented KOSMIK HV-I variants (170/210, COOL170/210/250 and DuoCOOL/WaterCOOL300)
+show **BEC side**, **LED side**, **Middle** without editable choices. Middle is
+physically documented for Off/Futaba/FrSky; its raw pointer/codes are unresolved.
+The old KOSMIK200+HV capture does not establish this newer integrated layout.
+`frei1`0x2038 is not assigned to Middle. Additional model spellings and modern
+PowerBox/FrSky codes await specific evidence. A complete hardware model comparison
+is not required for these evidence-limited controls.
+
+Sources and static K-KONFIG help provenance are recorded in section9 and the
+telemetry evidence addendum of the K-PROG analysis.
+
+
+RPM Off hides the five governor-specific rows in both Standard and Expert mode.
+The six motor-expert fields (minimum PWM, PWM rise/fall, soft start, alternate
+startup and startup current) are outside K-PROG's governor group and retain their
+Expert/model capability rules. No additional RPM-off dependency is inferred.
+
+
+With RPM Control On and source **At idle up**, Max RPM is hidden in both
+Standard and Expert mode. Selecting **Stored in EEPROM** restores the retained
+local Max RPM value; other governor fields stay subject to their usual rules.
+
+
+When Brake, RPM Control or its target source changes field visibility, the page
+keeps Motor expanded and restores focus to the triggering control. ETHOS scrolls
+that field into view instead of returning the viewport to the page header.
+
+
+Bluetooth interface shows the compact shared hint **Bluetooth turns off at motor
+start**, followed by **Re-enable with button** and **Re-enable at motor stop**.
+Each option controls its own received status bit; they remain independent.
+
+
+## Additional brake controls
+
+With Brake On, Motor shows four additional standard local controls:
+
+| Control | Received pointer / display | New local edits |
+| --- | --- | --- |
+| Min brake PWM | 0x3040, raw0..4096 converted to percent | 0..100 percent, whole percent |
+| Max brake PWM | 0x3042, raw0..4096 converted to percent | 0..100 percent, whole percent |
+| Brake ramp up | 0x200E, milliseconds | 100..10000ms, step100ms |
+| Brake ramp down | 0x203E, milliseconds | 100..10000ms, step100ms |
+
+PWM display follows K-PROG floor((raw+20)*100/4096). The captured KOLIBRI values
+are2%,99%,500ms and105ms. Received outliers/off-raster values remain visible;
+new edits follow the2026-04-01 PDF, and an original captured value can be restored.
+The simulator-only ramp-down sample uses100ms with adjusted checksum. Shared
+capture bytes remain unchanged. New min/max PWM edits cannot cross each other.
+
+Brake Off hides all four controls while preserving their drafts, and re-enabling
+restores them with the existing focus handling. Proportional brake Off additionally hides and locks Min/Max brake PWM while
+retaining their draft values. The brake ramps remain available with Brake On.
+This is an intentional Suite rule based on the PDF meaning; the older K-PROG UI
+does not add that lock. Expert cannot bypass it and is not required for editing. Helicopter preview locks the entire brake group;
+missing/ambiguous pointers show --. No setters send transport messages.
+
+Older K-PROG clamps brake PWM to2..100% and ramps to100..60000ms; those differ
+from the newer manufacturer PDF used for these local bounds. Real programming
+and firmware-specific qualification remain outside this read-only transport.
+
+
+## Internal governor follow-up intentions
+
+An explicit, accepted local RPM Control change now prepares the same conditional
+helper values as K-PROG adjustData. Reading/reloading does not prepare or execute
+adjustments. The captured raw snapshot is never modified.
+
+| Governor | Pointer / helper | Accepted captured raw range | Proposed command value |
+| --- | --- | --- | --- |
+| On | 0x3020 Stick_PWM_min | 1280..1536 | 33 percent |
+| On | 0x201C lower dead zone | 1280..1536 | 1365 raw |
+| On | 0x201E upper dead zone | 0 | 0 raw |
+| Off | 0x3020 Stick_PWM_min | 40..400 | 1 percent |
+| Off | 0x201C lower dead zone | 1..500 | 327 raw |
+| Off | 0x201E upper dead zone | 1..320 | 204 raw |
+
+Only mismatches are proposed. Command units stay explicit:33/1 are percentage
+commands, not received EEPROM ticks. The page does not guess their resulting raw
+readback. Each toggle recomputes the final intentions against the original capture;
+returning to a compatible captured mode removes obsolete proposals. Missing or
+ambiguous required inputs mark the entire preparation unavailable, never partially
+complete. A rejected/locked RPM setter does not change the intentions.
+
+These are internal local draft metadata, not new editable helper fields or transport
+messages. Reload, close, disconnect and arming discard them with the draft. Actual
+execution, percent conversion and atomic verification need the separately approved
+firmware write contract and hardware qualification. Save/MSP218 remain disabled.
+
+
+Telemetry ports always shows three rows. Known physical ports keep their model-
+specific names and existing capability checks. A documented absent port shows
+**Not fitted** without an editable control (for example Middle on the reference
+KOLIBRI). An existing port with unresolved encoding shows **Not readable**.
+Unknown models use neutral **Port 1/Port 2/Port 3** rows, all Not readable; absence
+is never inferred for an unknown model. No additional mapping or edit permission
+is granted by displaying the third row.

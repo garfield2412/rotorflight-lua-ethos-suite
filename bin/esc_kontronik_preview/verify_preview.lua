@@ -8,6 +8,12 @@ system = {getVersion=function() return {simulation=true} end}
 local deps = {}
 deps["app/tile_grid.lua"] = dofile("src/rfsuite/app/tile_grid.lua")
 deps["app/field_layout.lua"] = dofile("src/rfsuite/app/field_layout.lua")
+local lastFieldRuntime
+local buildSingle=deps["app/field_layout.lua"].buildSingle
+deps["app/field_layout.lua"].buildSingle=function(runtime,...)
+ lastFieldRuntime=runtime
+ return buildSingle(runtime,...)
+end
 package.loaded["rfsuite.lib.require"] = function(path)
   return deps[path] or error("Unexpected dependency: " .. path)
 end
@@ -224,9 +230,11 @@ os.clock = function() return clock end
 local widgets, options, handlers, nav, sent = {}, nil, {}, {}, {}
 local dialog,dialogClosed,dialogCount=nil,false,0
 local updates,builds = 0,0
+local focusedLabel
 local function widget(line,text)
   local w={label=line,text=text}
   function w:value(v) self.text=v; updates=updates+1 end
+  function w:focus() focusedLabel=self.label end
   widgets[#widgets+1]=w
   return w
 end
@@ -440,13 +448,17 @@ session(); open()
 while sent[#sent].simulatorResponse do
   local previous=#sent;for i=1,5 do answer(sent[#sent].simulatorResponse) end;if #sent==previous then break end
 end
-local demoChanges={[0x2008]=800,[0x200A]=3000,[0x204C]=14300,[0x204A]=100,[0x2048]=10,[0x4058]=0xFFFD1C95}
+local demoChanges={[0x2008]=800,[0x200A]=3000,[0x204C]=14300,[0x204A]=100,[0x2048]=10,[0x4004]=1116788,[0x203E]=100,[0x4058]=0xFFFD1C8F}
 for i,p in ipairs(kolibri) do
  check(received.pairs[i].pointer==p[1] and received.pairs[i].value==(demoChanges[p[1]] or p[2]),"simulator demo pair "..i)
 end
 check(text("rc_check")=="@i18n(app.modules.esc_tools.mfg.kontr.rc_valid)@","demo RC endpoints valid")
 check(control("gear_ratio").get()==100,"simulator ESC ratio is 1:1")
 check(control("pole_number").get()==10,"simulator pole count is ten")
+check(control("brake").get()==0,"simulator brake defaults Off")
+local demoPropVisible=false
+for _,w in ipairs(widgets) do if w.label==labelFor("prop_brake") then demoPropVisible=true end end
+check(not demoPropVisible,"simulator Brake Off hides proportional brake")
 local demoRequests=#sent
 for _,c in ipairs({{0,800},{1,3000},{2,2300}}) do
  control("battery_type").set(c[1]);handlers.wakeup()
@@ -466,6 +478,289 @@ end
 local function show(options)
   open();answer(fixture(options))
 end
+-- Four brake parameters: raw pointers, percentage projection and local rules.
+show({})
+control("prop_brake").set(1);handlers.wakeup()
+local brakeKeys={"brake_pwm_min","brake_pwm_max","brake_slew_up","brake_slew_down"}
+local brakeLabels={brake_pwm_min="Min brake PWM",brake_pwm_max="Max brake PWM",brake_slew_up="Brake ramp up",brake_slew_down="Brake ramp down"}
+local function brakeField(key)
+ for _,w in ipairs(widgets) do if w.label==brakeLabels[key] then return w end end
+ error("Missing brake field "..key)
+end
+check(received.fields.brake_pwm_min==2 and received.fields.brake_pwm_max==99,"captured brake PWM raw81/4055 project to2/99 percent")
+check(received.fields.brake_slew_up==500 and received.fields.brake_slew_down==105,"captured brake ramps project unscaled ms")
+local brakeEditRequests=#sent
+check(brakeField("brake_slew_down").get()==105,"received off-raster ramp retained")
+brakeField("brake_pwm_min").set(0);brakeField("brake_pwm_max").set(100)
+brakeField("brake_slew_up").set(10000);brakeField("brake_slew_down").set(100)
+check(brakeField("brake_pwm_min").get()==0 and brakeField("brake_pwm_max").get()==100,"PDF PWM endpoints accepted")
+for _,case in ipairs({{"brake_pwm_min",101},{"brake_pwm_max",-1},{"brake_slew_up",10100},{"brake_slew_down",150}}) do
+ local f=brakeField(case[1]);local old=f.get();f.set(case[2]);check(f.get()==old,"invalid brake limit/raster rejected "..case[1])
+end
+brakeField("brake_pwm_min").set(40);brakeField("brake_pwm_max").set(30)
+check(brakeField("brake_pwm_max").get()==100,"max below min rejected")
+brakeField("brake_pwm_max").set(60);brakeField("brake_pwm_min").set(70)
+check(brakeField("brake_pwm_min").get()==40,"min above max rejected")
+local stalePwm=brakeField("brake_pwm_min")
+control("prop_brake").set(0);handlers.wakeup()
+for _,key in ipairs({"brake_pwm_min","brake_pwm_max"}) do
+ local visible=false;for _,w in ipairs(widgets) do if w.label==brakeLabels[key] then visible=true end end
+ check(not visible,"Proportional Off hides "..key)
+end
+check(focusedLabel==labelFor("prop_brake"),"proportional toggle retains viewport focus")
+stalePwm.set(20)
+check(brakeField("brake_slew_up").enabled and brakeField("brake_slew_down").enabled,"ramps remain available without proportional braking")
+control("expert_settings").set(true)
+check(lastFieldRuntime.data.brake_pwm_min==40,"Expert and stale hidden callback cannot alter PWM draft")
+control("prop_brake").set(1);handlers.wakeup()
+check(brakeField("brake_pwm_min").get()==40 and brakeField("brake_pwm_max").get()==60,"Proportional On restores PWM draft")
+control("expert_settings").set(false)
+for _,key in ipairs(brakeKeys) do check(brakeField(key).enabled,"Brake controls need no Expert opt-in: "..key) end
+local staleBrake=brakeField("brake_slew_up")
+control("brake").set(0);handlers.wakeup()
+for _,key in ipairs(brakeKeys) do
+ local visible=false;for _,w in ipairs(widgets) do if w.label==brakeLabels[key] then visible=true end end
+ check(not visible,"Brake Off hides "..key)
+end
+staleBrake.set(200)
+control("brake").set(1);handlers.wakeup()
+check(brakeField("brake_slew_up").get()==10000,"hidden brake edits preserved and stale callback rejected")
+control("default_parameter_set").set(4)
+for _,key in ipairs(brakeKeys) do check(not brakeField(key).enabled,"Helicopter mask locks brake parameter "..key) end
+control("default_parameter_set").set(0)
+check(received.byPointer[0x200E]==500 and received.byPointer[0x203E]==105 and received.byPointer[0x3040]==81
+ and received.byPointer[0x3042]==4055 and #sent==brakeEditRequests,"brake edits preserve raw capture and emit no transport")
+handlers.cleanup()
+for _,ambiguous in ipairs({false,true}) do
+ local ps=changedPairs({});for _,pair in ipairs(ps) do if pair[1]==0x3040 then pair[1]=ambiguous and 0x3042 or 0x9999;break end end
+ show({pairs=ps});control("prop_brake").set(1);handlers.wakeup()
+ check(brakeField("brake_pwm_min").text=="--" and not brakeField("brake_pwm_min").set,"missing brake pointer unavailable")
+ if ambiguous then check(brakeField("brake_pwm_max").text=="--","duplicate brake pointer unavailable") end
+ handlers.cleanup()
+end
+-- K-PROG governor helper intentions keep raw observations and command units apart.
+local function helperCapture(pwm,low,high)
+ return assert(decodeTransaction(fixture({pairs=changedPairs({[0x3020]=pwm,[0x201C]=low,[0x201E]=high})})))
+end
+for _,mode in ipairs({0,1}) do
+ local ranges=mode==1 and {{1280,1536},{1280,1536},{0,0}} or {{40,400},{1,500},{1,320}}
+ for i=1,3 do for _,edge in ipairs({ranges[i][1],ranges[i][2]}) do
+  local v={ranges[1][1],ranges[2][1],ranges[3][1]};v[i]=edge
+  check(#assert(codec.planGovernorAdjustments(helperCapture(v[1],v[2],v[3]),mode))==0,"helper accepted range boundary mode "..mode.." input "..i)
+ end end
+ for i=1,3 do
+  for _,outside in ipairs({ranges[i][1]-1,ranges[i][2]+1}) do
+   if outside>=0 then
+    local v={ranges[1][1],ranges[2][1],ranges[3][1]};v[i]=outside
+    check(#assert(codec.planGovernorAdjustments(helperCapture(v[1],v[2],v[3]),mode))==1,"single helper outside boundary plans exactly one correction")
+   end
+  end
+ end
+ local plan=assert(codec.planGovernorAdjustments(helperCapture(0xFFFFFFFF,0xFFFFFFFF,0xFFFFFFFF),mode))
+ for i,pointer in ipairs({0x3020,0x201C,0x201E}) do
+  check(plan[i].pointer==pointer and plan[i].value==(mode==1 and ({33,1365,0})[i] or ({1,327,204})[i]),"helper mismatch target and order")
+  check(plan[i].unit==(i==1 and "percent" or "raw") and plan[i].observedRaw==0xFFFFFFFF,"helper command units separate from observed EEPROM")
+ end
+end
+for _,pointer in ipairs({0x3020,0x201C,0x201E}) do
+ local ps=changedPairs({});for _,p in ipairs(ps) do if p[1]==pointer then p[1]=0x9999;break end end
+ check(codec.planGovernorAdjustments(assert(decodeTransaction(fixture({pairs=ps}))),1)==nil,"missing helper prevents partial plan")
+ ps=changedPairs({});ps[#ps+1]={pointer,0}
+ check(codec.planGovernorAdjustments(assert(decodeTransaction(fixture({pairs=ps}))),0)==nil,"ambiguous helper prevents partial plan")
+end
+show({})
+check(lastFieldRuntime.data.governor_adjustments==nil,"capture never auto-prepares helper changes")
+local governorRequests=#sent;local governorCapture=received
+control("rpm_ctl").set(0);handlers.wakeup()
+local plan=lastFieldRuntime.data.governor_adjustments
+check(#plan==3 and plan[1].value==1 and plan[2].value==327 and plan[3].value==204,"local Governor Off prepares all three mismatches")
+control("rpm_ctl").set(1);handlers.wakeup()
+check(#lastFieldRuntime.data.governor_adjustments==0,"returning to captured Governor On cancels obsolete intentions")
+check(governorCapture.byPointer[0x3020]==1365 and governorCapture.byPointer[0x201C]==1365 and governorCapture.byPointer[0x201E]==0
+ and #sent==governorRequests,"helper intentions preserve capture and send no messages")
+control("default_parameter_set").set(2);control("rpm_ctl").set(0)
+check(lastFieldRuntime.data.rpm_ctl==1 and #lastFieldRuntime.data.governor_adjustments==0,"locked Governor setter cannot change helper intentions")
+options.onReload();answer(fixture({}))
+check(lastFieldRuntime.data.governor_adjustments==nil,"reload clears intentions without read-time adjustment")
+handlers.cleanup()
+local missingHelper=changedPairs({});for _,p in ipairs(missingHelper) do if p[1]==0x3020 then p[1]=0x9999;break end end
+show({pairs=missingHelper});local helperMissingRequests=#sent
+control("rpm_ctl").set(0);handlers.wakeup()
+check(lastFieldRuntime.data.governor_adjustments==nil and lastFieldRuntime.data.governor_adjustment_error=="unavailable",
+ "missing input marks preparation unavailable, never a complete partial transaction")
+check(#sent==helperMissingRequests,"unavailable helper plan does not write")
+handlers.cleanup()
+show({pairs=changedPairs({[0x3020]=0,[0x201C]=0,[0x201E]=5})})
+check(lastFieldRuntime.data.governor_adjustments==nil and received.byPointer[0x201E]==5,"reading an incompatible helper set is still read-only")
+handlers.cleanup()
+for _,reset in ipairs({"disconnect","arming","close"}) do
+ show({});control("rpm_ctl").set(0);handlers.wakeup()
+ local helperDraft=lastFieldRuntime.data;local helperRequests=#sent
+ check(#helperDraft.governor_adjustments==3,"helper plan present before lifecycle reset")
+ if reset=="close" then handlers.cleanup()
+ else session({connected=reset~="disconnect",isArmed=reset=="arming",mspTransport="sport",handshake={apiVersion=true}}) end
+ check(helperDraft.governor_adjustments==nil and #sent==helperRequests,"lifecycle discards local helper plan without writes: "..reset)
+ if handlers.cleanup then handlers.cleanup() end;session()
+end
+-- Bluetooth wording separates common shutdown from independent re-enable bits.
+show({})
+local hintCount=0
+for _,w in ipairs(widgets) do if w.text=="@i18n(app.modules.esc_tools.mfg.kontr.bluetooth_hint)@" then hintCount=hintCount+1 end end
+check(hintCount==1,"Bluetooth has one compact common hint")
+local bluetoothRequests=#sent
+local button=control("bt_disable_motor_renable_button")
+local stop=control("bt_disable_motor_renable_motor_stop")
+local oldStop=stop.get();button.set(1-button.get())
+check(stop.get()==oldStop,"Bluetooth button re-enable does not alter motor-stop setting")
+local oldButton=button.get();stop.set(1-stop.get())
+check(button.get()==oldButton and #sent==bluetoothRequests,"Bluetooth options independent and local only")
+handlers.cleanup()
+-- Brake off hides its dependent proportional-brake control, preserving edits.
+show({})
+control("brake").set(1);handlers.wakeup()
+control("prop_brake").set(1)
+local staleProp=control("prop_brake");local brakeRequests=#sent
+control("brake").set(0);handlers.wakeup()
+local hasProp=false;for _,w in ipairs(widgets) do if w.label==labelFor("prop_brake") then hasProp=true end end
+check(not hasProp,"Brake off hides proportional brake")
+check(focusedLabel==labelFor("brake"),"brake rebuild restores focus to triggering switch")
+staleProp.set(0)
+check(control("brake_position").get()~=nil,"independent RC brake endpoint remains visible")
+control("expert_settings").set(true)
+hasProp=false;for _,w in ipairs(widgets) do if w.label==labelFor("prop_brake") then hasProp=true end end
+check(not hasProp,"Expert cannot reveal a Brake-off dependent field")
+control("brake").set(1);handlers.wakeup()
+check(control("prop_brake").get()==1 and control("prop_brake").enabled,"Brake on restores retained draft; hidden setter ignored")
+check(#sent==brakeRequests,"brake visibility changes send no transport request")
+handlers.cleanup()
+-- RPM Control off hides governor children without dropping their draft.
+show({})
+control("rpm_ctl").set(1);handlers.wakeup()
+control("how_adj_max_rpm").set(1);control("max_rpm").set(40000)
+local staleRpm=control("max_rpm")
+local beforeHideRequests=#sent
+control("rpm_ctl").set(0);handlers.wakeup()
+for _,key in ipairs({"how_adj_max_rpm","max_rpm","startuptime","p-gain","motor_resist"}) do
+ local found=false;for _,w in ipairs(widgets) do if w.label==labelFor(key) then found=true end end
+ check(not found,"RPM off hides "..key)
+end
+staleRpm.set(50000)
+control("rpm_ctl").set(1);handlers.wakeup()
+check(control("max_rpm").get()==40000 and control("max_rpm").enabled,"RPM on restores retained draft; hidden callback ignored")
+check(focusedLabel==labelFor("rpm_ctl"),"governor rebuild restores switch focus")
+check(#sent==beforeHideRequests,"governor visibility changes send no request")
+handlers.cleanup()
+-- APK updateUI hides only idcRPMcontrolSettings; MotorExperts is independent.
+show({})
+control("rpm_ctl").set(0);handlers.wakeup()
+local dependencyRequests=#sent
+for _,expert in ipairs({false,true}) do
+ control("expert_settings").set(expert);handlers.wakeup()
+ for _,key in ipairs({"how_adj_max_rpm","max_rpm","startuptime","p-gain","motor_resist"}) do
+  local visible=false;for _,w in ipairs(widgets) do if w.label==labelFor(key) then visible=true end end
+  check(not visible,"RPM off dependency stays hidden with Expert "..tostring(expert)..": "..key)
+ end
+ for _,key in ipairs({"PWM_min","slewrate_up","slewrate_down","extra_smooth_IU","alternate_startup","startup_curr_limit"}) do
+  check(control(key).enabled==expert,"independent motor expert field follows Expert, not RPM: "..key)
+ end
+end
+check(#sent==dependencyRequests,"RPM/Expert dependency inspection causes no transport")
+handlers.cleanup()
+-- APK idcMaxRPMSettings is hidden in At idle up mode, even with Expert.
+show({})
+control("rpm_ctl").set(1);control("how_adj_max_rpm").set(1);handlers.wakeup()
+control("max_rpm").set(45000)
+local staleMax=control("max_rpm");local idleRequests=#sent
+control("how_adj_max_rpm").set(0);handlers.wakeup()
+for _,expert in ipairs({false,true}) do
+ control("expert_settings").set(expert)
+ local visible=false;for _,w in ipairs(widgets) do if w.label==labelFor("max_rpm") then visible=true end end
+ check(not visible,"At idle up hides Max RPM with Expert "..tostring(expert))
+ check(control("startuptime").enabled and control("p-gain").enabled,"At idle up retains other governor settings")
+end
+staleMax.set(46000)
+control("how_adj_max_rpm").set(1);handlers.wakeup()
+check(control("max_rpm").get()==45000 and control("max_rpm").enabled,"stored target restores Max RPM draft; hidden setter ignored")
+check(focusedLabel==labelFor("how_adj_max_rpm"),"target source rebuild restores selector focus")
+check(#sent==idleRequests,"RPM source visibility emits no request")
+handlers.cleanup()
+-- Telemetry output bytes are local, model-qualified and independent.
+local function port(label)
+ for _,w in ipairs(widgets) do if w.label==label then return w end end
+ error("Missing physical port "..label)
+end
+show({})
+local portRequests=#sent
+check(port("Middle").text=="Not fitted" and not port("Middle").set,"two-port KOLIBRI shows third row as Not fitted")
+check(port("Front").get()==0 and text("status_model")=="KOLIBRI140+LV" and port("Side").get()==1,"0x0100 means Front Off and Side KONTRONIK")
+for _,choice in ipairs(port("Side").choices) do check(choice[2]~=3,"side offers no Futaba") end
+port("Front").set(2)
+check(lastFieldRuntime.data.telemetry_word==0x0102 and port("Side").get()==1,"front edit preserves side byte")
+port("Side").set(4)
+check(lastFieldRuntime.data.telemetry_word==0x0402 and port("Front").get()==2,"side edit preserves front byte")
+port("Front").set(4);check(port("Front").get()==2,"duplicate active protocol rejected")
+port("Side").set(2);check(port("Side").get()==4,"duplicate active side protocol rejected")
+port("Side").set(3);check(port("Side").get()==4,"side setter rejects Futaba")
+port("Front").set(3);check(port("Front").get()==3,"front permits proven Futaba code")
+port("Front").set(0);port("Side").set(0)
+check(lastFieldRuntime.data.telemetry_word==0,"multiple Off ports allowed")
+check(received.byPointer[0x2036]==256 and #sent==portRequests,"telemetry draft edits preserve capture and send nothing")
+control("expert_settings").set(true);control("expert_settings").set(false)
+check(port("Side").get()==0,"Expert opt-out does not reset ordinary port edits")
+local stalePort=port("Front")
+options.onReload();stalePort.set(6);answer(fixture({}))
+check(port("Front").get()==0 and port("Side").get()==1,"reload restores captured port bytes")
+handlers.cleanup()
+show({pairs=changedPairs({[0x2036]=0xABCD0100})})
+port("Front").set(6);port("Side").set(2)
+check(lastFieldRuntime.data.telemetry_word==0xABCD0206,"port edits preserve U32 upper bits")
+handlers.cleanup()
+show({pairs=changedPairs({[0x2036]=0xFE00})})
+check(port("Side").text=="Raw 0xFE" and not port("Side").set,"unknown side code displayed raw without editable selection")
+port("Front").set(3)
+check(lastFieldRuntime.data.telemetry_word==0xFE03 and received.byPointer[0x2036]==0xFE00,"unknown other byte preserved unchanged")
+handlers.cleanup()
+show({pairs=changedPairs({[0x2036]=0x0103})})
+check(port("Front").get()==3 and port("Side").get()==1,"received front Futaba is readable")
+handlers.cleanup()
+for _,ambiguous in ipairs({false,true}) do
+ local ps=changedPairs({})
+ for _,p in ipairs(ps) do if p[1]==0x2036 then p[1]=ambiguous and 0x2038 or 0x9999;break end end
+ show({pairs=ps})
+ check(port("Front").text=="Not readable" and not port("Front").set and not port("Side").set,"missing telemetry pointer locks choices")
+ handlers.cleanup()
+end
+show({version=0x0403,pairs=changedPairs({[0x2002]=0x0403})})
+check(not port("Front").set and not port("Side").set,"unqualified EEPROM cannot grant port edits")
+handlers.cleanup()
+show({pairs=changedPairs({[0x2036]=0x0301})})
+check(port("Side").text=="Futaba" and not port("Side").set,"received forbidden side code is preserved read-only")
+port("Front").set(3);check(port("Front").get()==1,"duplicate active raw side code is still guarded")
+handlers.cleanup()
+show({});local armedPort=port("Front");local portCapture=received
+session({connected=true,isArmed=true,mspTransport="sport",handshake={apiVersion=true}})
+armedPort.set(6)
+check(portCapture.byPointer[0x2036]==256,"arming detaches port setter without changing capture")
+handlers.cleanup();session()
+local dup=changedPairs({});dup[#dup+1]={0x2036,256}
+show({pairs=dup});check(port("Front").text=="Not readable" and not port("Side").set,"duplicate frei0 cannot grant editing");handlers.cleanup()
+show({model="UNKNOWN",pairs=changedPairs({})})
+for _,label in ipairs({"Port 1","Port 2","Port 3"}) do
+ check(port(label).text=="Not readable" and not port(label).set,"unknown model shows three unresolved rows without inferred connectors")
+end
+handlers.cleanup()
+show({model="KOLIBRI 90 LV-I"})
+check(port("Front").text=="Not readable" and not port("Front").set,"one-port model has unresolved front encoding")
+for _,label in ipairs({"Side","Middle"}) do check(port(label).text=="Not fitted" and not port(label).set,"absent physical port shown but never selectable") end
+handlers.cleanup()
+show({model="KOLIBRI 140 HV-I"})
+check(port("Front").text=="Not readable" and not port("Side").set,"documented HV-I physical ports do not infer EEPROM mapping");handlers.cleanup()
+show({model="KOSMIK 210 HV-I",pairs=changedPairs({[0x2038]=2})})
+for _,label in ipairs({"BEC side","LED side","Middle"}) do
+ check(port(label).text=="Not readable" and not port(label).set,"documented three-port layout without inferred code: "..label)
+end
+check(received.byPointer[0x2038]==2,"frei1 never projected as Middle")
+handlers.cleanup()
 -- Gear proposals require confirmation, never mutate received data or transport.
 local beforeGearReadDialogs=dialogCount
 show({})
@@ -733,7 +1028,9 @@ local function verifyExpertMarkers()
  for _,key in ipairs(expertLabelKeys) do check(control(key).label==markedLabels[key],"visible literal marker: "..key) end
  check(control("expert_settings").label=="Expert Settings *","switch wording and permanent marker")
  for _,key in ipairs({"battery_type","gear_ratio","p-gain","motor_resist","brake","off_position","max_discharge","alarm_edit","cutoff_default"}) do
-  check(control(key).label:sub(-1)~="*","standard field stays unmarked: "..key)
+  if control("rpm_ctl").get()~=0 or (key~="p-gain" and key~="motor_resist") then
+   check(control(key).label:sub(-1)~="*","standard field stays unmarked: "..key)
+  end
  end
 end
 verifyExpertMarkers()
@@ -815,6 +1112,9 @@ local chars={};for b in table.concat(lines," "):gmatch("%x%x") do chars[#chars+1
 local e=assert(table.concat(chars):match("\xA7E([^\n]+)"));local kosmik={}
 for value,pointer in e:gmatch("(%d+):(%d+);") do kosmik[#kosmik+1]={tonumber(pointer),tonumber(value)} end
 check(#kosmik==39,"KOSMIK reconstructed capture contains 39 ordered pairs")
+local kosmikDecoded=assert(decodeTransaction(fixture({model="KOSMIK200+HV",version=0x0401,pairs=kosmik})))
+check(kosmikDecoded.fields.brake_pwm_min==0 and kosmikDecoded.fields.brake_pwm_max==100,"KOSMIK brake PWM exact0/4096 boundaries")
+check(kosmikDecoded.fields.brake_slew_up==1000 and kosmikDecoded.fields.brake_slew_down==100,"KOSMIK brake ramp pointer mapping")
 show({model="KOSMIK200+HV",version=0x0401,pairs=kosmik})
 control("alarm_edit").set(true)
 check(control("max_esc_temp").enabled and control("max_discharge").enabled,"recognized KOSMIK layout grants documented alarms")

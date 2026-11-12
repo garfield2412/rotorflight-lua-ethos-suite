@@ -3,39 +3,49 @@
 
 ## Current implementation status - 2026-11-12
 
-This section describes the current Suite state; dated entries below record the
+This section describes the current Suite state. Dated entries below preserve
 implementation history and can describe rules subsequently superseded.
 
-- MSP217 uses kbidir-msp217-v4-r3: direct empty requests, exactly96 response
-  bytes, at most14 pairs per block and strict zero padding. The collector has
-  one pending request, recovers missing blocks on later cycles, checks duplicates
-  and publishes only a complete coherent snapshot. Unknown and duplicate pointers
-  retain their order; ambiguous projected fields remain unavailable.
-- The page shows ESC model/EEPROM version and permits validated local edits.
-  Chemistry-specific cutoffs, brake/governor dependencies, joint RC endpoint
-  diagnostics, conservative device/alarm capabilities and nine marked expert
-  controls are implemented. Expert opt-out restores captured expert values.
-- Default parameter set starts unselected. Documented masks apply locally;
-  F5A reports its missing mask. Only explicit Car6 permits local Forward/Backward
-  edits. Other targets lock the field without losing the draft. Rotation is separate.
-- The first Main Gear Ratio change requires confirmation; Confirm acknowledges
-  the English notice for subsequent edits in that page visit. Cancel keeps the
-  previous value. Reload/close/disconnect/arming reset acknowledgment and reject
-  stale confirmations. Neither ESC nor FC gearing is written.
-- Simulator-only examples use10 poles and ESC gearing1:1, with corrected checksum
-  and cutoffs within known limits. Original shared firmware/capture vectors are
-  unchanged. Save and Load Preset remain disabled; the Suite sends no KBiDir MSP218.
-  Global queue timeouts and V4-r3 wire format remain unchanged.
-- Current executed tests: Lua5.4.6 decoder/page1837, real-queue software273,
-  signature88 plus48 negative self-test gates; English tag/fit checks pass.
-  Prior X20PRO simulator checks verified the actual menu path, populated capture,
-  disabled actions, Car editing/locking and gear confirmation/cancellation.
-  The final one-time gear acknowledgment change is covered by the page harness.
-- Still open: S.Port/FBUS/CRSF block reliability and end-to-end display timings,
-  physical-radio memory stability, X18 visual verification, model/EEPROM capability
-  questions and any future write/preset contract. Simulator/software tests do not
-  qualify those hardware paths. Further localization is deferred; existing English
-  resources are included without adding other locales in this commit.
+- Transport remains MSP217 kbidir-msp217-v4-r3: empty direct requests,96-byte
+  responses,14 pairs per block, strict padding, coherent collection and bounded
+  page deadline. Global queue timeouts and original shared vectors are unchanged.
+- Local editor shows model/EEPROM, validated chemistry-specific cutoffs, joint RC
+  endpoint diagnostics, conservative alarm capabilities and nine marked Expert
+  fields. The existing Car/preset preview and one-time gearing notice remain.
+- Telemetry ports follows Bluetooth and always has three rows: known missing
+  connectors Not fitted, unresolved mappings Not readable. The captured KOLIBRI
+  Front/Side0x2036 bytes support independent local edits, front-only Futaba,
+  duplicate-active validation and unknown-code preservation. Other model layouts
+  are not newly authorized by merely displaying their ports.
+- Brake Off hides its dependents. Proportional brake Off additionally hides/locks
+  Min/Max brake PWM; brake ramps remain available with Brake On. PWM0..100% and
+  ramp100..10000ms edits follow the newer PDF, preserving captured outliers.
+- RPM Control Off hides governor-specific fields in Standard and Expert mode.
+  At idle up hides Max RPM. Re-enabling restores drafts; structural rebuilds keep
+  Motor open and restore focus to the initiating switch/source rather than header.
+- Explicit local governor changes prepare typed K-PROG helper intentions for
+  Stick_PWM_min and both dead zones. Raw comparisons and percent commands stay
+  separate. No read-time adjustment or actual device transaction is implemented.
+- Bluetooth wording now uses one compact common hint plus independent re-enable
+  labels. Only English resources were updated; other localization remains deferred.
+- Simulator uses10 poles, gearing1:1, Brake Off, valid demo cutoffs and100ms brake
+  ramp-down; its checksum is adjusted. Hardware reads/capture vectors are intact.
+- New static K-KONFIG analysis proves PowerBox7/FrSky8 assignments and a distinct
+  family250 packed three-port word, plus family-dependent byte layouts. The new
+  inspector verifies the EXE hash,34 instruction anchors,15 literals,3 control
+  routes,7 family-flag cases and6 name dispatches. No target execution occurred.
+  USB-to-UART model/version/pointer correspondence remains unqualified, so the
+  findings do not grant new Suite runtime capability.
+- Current checks: Lua5.4.6 decoder/page2229, queue273, signature88 plus48 negative
+  self-test gates; English tag/fit checks pass. X20PRO simulator checks cover
+  port display/editing, dependency visibility, focus, brake parameters and Bluetooth
+  wording. Governor helper metadata is covered by the harness, not hardware.
+- Save, Load Preset and KBiDir MSP218 remain disabled. Still open: real write/preset
+  contract and atomic verification, fresh G-frame endpoint capture, further model/
+  EEPROM mappings, physical-radio memory/X18 visual checks and S.Port/FBUS/CRSF
+  reliability/display timings. No comprehensive hardware comparison is claimed.
+
+## Historical validation record
 
 Local uncommitted work on `ESC_Kontronik_4.7`, 2026-11-11.
 Revision **kbidir-msp217-v4-r3**: [contract](kbidir-msp217-v4-cyclic.md).
@@ -382,3 +392,176 @@ acknowledgment. Preview and Expert toggles retain it. Lua 5.4.6: 1837 page/decod
 checks pass, including repeated increments/decrements, bounds after acknowledgment,
 preview/Expert persistence and a new confirmation after Reload. Page syntax passes.
 No i18n files, wire format, queue timeouts or write capabilities were changed.
+
+
+## Telemetry ports (2026-11-12)
+
+Implemented the captured KOLIBRI140+LV / EEPROM0402 two-port mapping only:
+frei0 pointer0x2036, low byte Front and high byte Side. Raw0x0100 displays
+Front Off / Side KONTRONIK. K-PROG-proven codes0..6 are selectable except
+Futaba3 on Side. Duplicate active selections are rejected in both directions;
+Off may be used on both. Local editing preserves the other byte, upper U32 bits,
+unknown raw codes and the immutable captured snapshot. Expert/alarm switches do
+not grant capabilities. Missing/ambiguous pointer, unknown EEPROM or unknown
+model cannot grant editing. Unknown received codes are shown raw and read-only.
+
+Physical documented KOSMIK HV-I three-port layouts show BEC side / LED side /
+Middle as Not readable: pointer/code mappings remain open. Static K-KONFIG help
+lists Off/Futaba/FrSky for Middle but supplies no EEPROM code proof. frei1 is not
+assigned to Middle. Manufacturer manual links, executable hash and APK evidence
+are recorded in the K-PROG analysis addendum. No complete hardware model sweep
+is claimed or required. Other model spellings/layouts and modern codes remain open.
+
+Executed with Lua5.4.6:1927 decoder/page checks,273 real-queue software checks,
+88 signature checks plus48 negative self-test gates. Changed page syntax and
+English i18n tags validate. Existing locale files and shared V4-r3 vectors are
+unchanged. No write messages are generated; Save/MSP218/global timeouts unchanged.
+
+X20PRO EU nightly26 WASM: entered through the Suite menu, opened Telemetry ports,
+verified Front Off / Side KONTRONIK, changed Front to Graupner and verified Side
+remained KONTRONIK. Ignored local screenshots under
+simulators/X20PRO_EU@nightly26/scripts/rfsuite.user/: telemetry-list.png,
+telemetry-reference.png, telemetry-front-edited.png; log telemetry-ports.log.
+RF measurements and actual ESC programming remain outside this software result.
+
+
+## Governor field visibility (2026-11-12)
+
+RPM Control Off hides its source, max RPM, startup, gain and resistance rows.
+Re-enabling restores retained draft values. A state transition schedules one
+form rebuild and keeps the Motor panel open; idle wakeups do not rebuild it.
+Hidden callbacks remain gated/detached. Missing RPM Control does not infer Off.
+Lua5.4.6:1934 decoder/page checks and273 queue checks pass, including visibility,
+retained40000 RPM target, rejected hidden callback and no transport messages.
+No localization or write capability changed. This final visibility adjustment
+has not yet received an additional simulator visual check.
+
+
+## Brake dependent visibility (2026-11-12)
+
+The same dependency-based visibility rule now hides Proportional brake when
+Brake is Off. On restores the retained draft; Expert cannot reveal the hidden
+child, and stale hidden callbacks cannot change it. RC Brake Position remains
+independent and visible for joint endpoint validation. Lua5.4.6:1943 page/decoder
+checks and273 queue checks pass; page syntax passes. X20PRO EU nightly26 simulator
+verified Proportional brake visible with Brake On and absent after selecting Off;
+Motor panel stays open. Local ignored screenshots: brake-fields-before.png and
+brake-fields-hidden.png in simulators/X20PRO_EU@nightly26/scripts/rfsuite.user/.
+No writes or localization changes introduced.
+
+
+## Max RPM visibility in At idle up mode (2026-11-12)
+
+Matches K-PROG MainActivity.updateUI lines2370-2378: Max RPM is hidden when
+how_adj_max_rpm=0, independent of Expert. Switching to stored target mode restores
+the retained local value; other governor fields remain available with RPM Control
+On. The existing setter gate continues to reject hidden edits. A genuine source
+transition schedules a form rebuild with Motor open. Lua5.4.6:1982 decoder/page
+checks pass, including Expert off/on, retained45000 RPM and stale callback rejection.
+Page syntax validates. No additional simulator visual check performed for this
+change. No write, protocol, timeout or localization changes.
+
+
+## Focus after visibility rebuild (2026-11-12)
+
+The form rebuild now records the initiating Brake/RPM Control/RPM-source key,
+opens Motor and focuses the replacement control after field construction and
+state updates. ETHOS scrolls that control into view, avoiding the page-header
+jump; exact pixel offset is not saved. Invalidation clears the pending focus.
+Lua5.4.6:1985 decoder/page checks and273 queue checks pass. X20PRO EU nightly26
+simulator confirms RPM Control stays visible/focused after switching Off.
+Ignored evidence: focus-before.png and focus-rpm-off.png under
+simulators/X20PRO_EU@nightly26/scripts/rfsuite.user/. No i18n or transport changes.
+
+
+## Compact Bluetooth wording (2026-11-12)
+
+The English Bluetooth section now shows one full-width compact hint,
+Bluetooth turns off at motor start, followed by Re-enable with button and
+Re-enable at motor stop. The original independent bit18/19 controls are unchanged.
+Updated English source/generated locale only; other locales remain deferred.
+Lua5.4.6:1992 decoder/page checks pass, including one shared hint and independent
+local setters without transport. English tag and X18 fit checks pass.
+X20PRO EU nightly26 simulator visually confirms all three lines fit without
+truncation. Ignored local screenshot: bluetooth-wording.png under
+simulators/X20PRO_EU@nightly26/scripts/rfsuite.user/. No writes added.
+
+
+## Additional brake parameters (2026-11-12)
+
+Added Min/Max brake PWM (0x3040/0x3042, K-PROG percentage conversion) and brake
+ramp up/down (0x200E/0x203E, ms). PDF2026-04-01 pages8,10,11 were rendered and
+visually checked: PWM0..100% and ramps100..10000ms with100ms steps. APK differences
+(PWM2..100%, ramps up to60000ms) are recorded in the analysis/page documentation.
+Received values are preserved, including KOLIBRI105ms off-raster ramp-down.
+Simulator-only ramp-down now100ms, checksum0xFFFD1C8F; original vectors unchanged.
+
+All four controls are standard Brake children, hidden with Brake Off and locked
+by the Helicopter mask. Proportional brake Off does not add another condition.
+Local edits preserve raw capture, min/max edits cannot cross, missing/ambiguous
+pointers remain unavailable and stale hidden setters cannot mutate the draft.
+
+Executed Lua5.4.6:2036 decoder/page checks,273 queue checks,88 signature checks plus
+48 negative gates. Cases include KOLIBRI capture conversion, KOSMIK0/4096 PWM
+boundaries, both ramp mappings, bounds/raster, crossed min/max, retained drafts,
+preview locks, missing/duplicate pointers and no transport. Both changed modules
+pass syntax checks; existing i18n tags pass. No locale resources changed in this task.
+
+X20PRO EU nightly26: real menu entry, Brake default Off, enabling Brake reveals
+Min2%, Max99%, ramp up500ms, ramp down100ms. Screenshot brake-parameters.png under
+simulators/X20PRO_EU@nightly26/scripts/rfsuite.user/ (ignored). Firmware/RF and real
+programming qualification remain open. MSP217 V4-r3/global timeouts unchanged;
+Save, presets and MSP218 stay disabled. Changes remain local and uncommitted.
+
+
+## Proportional brake PWM visibility (2026-11-12)
+
+Explicit Suite extension over the APK: Min/Max brake PWM require both Brake and
+Proportional brake On. Proportional Off hides both rows and rejects their setters;
+Expert cannot bypass. Re-enabling restores drafts. Brake ramps depend only on
+Brake. Rebuild focus returns to the proportional switch. Lua5.4.6:2042 page/decoder
+and273 queue checks pass, including hidden stale setters, retained min40/max60,
+Expert restrictions, independent ramps and no transport. X20PRO EU nightly26
+simulator confirms the two PWM rows absent with Proportional Off and present
+with On; focus stays at the switch. Local ignored screenshots proportional-off.png
+and proportional-on.png under simulators/X20PRO_EU@nightly26/scripts/rfsuite.user/.
+No localization, wire-format, timeout or write capability changes.
+
+
+## Local governor helper intentions (2026-11-12)
+
+Inspected MainActivity.OnClick_CBRPMcontrol/adjustData and Util.between; accepted
+ranges are inclusive. The local planner conditionally proposes three helper
+commands in APK order: Stick_PWM_min0x3020 percent33/1, lower dead zone0x201C
+raw1365/327, upper dead zone0x201E raw0/204 for Governor On/Off. Raw acceptance
+ranges remain separate from command values/units. It emits no MSP message and
+never fabricates raw readback for percentage commands.
+
+The page invokes preparation only after an accepted rpm_ctl change, recomputing
+against the original capture on each toggle. Missing/ambiguous required inputs
+mark the whole plan unavailable. Initial/repeated reads do not trigger adjustments,
+even when the received helpers mismatch K-PROG's expectations. Local draft metadata
+is discarded on Reload, close, disconnect and arming; masks/locked callbacks
+cannot change it. Actual firmware transaction, conversions and verification are
+not implemented: they remain gated by the future write contract and hardware tests.
+
+Executed Lua5.4.6:2219 decoder/page checks. Covered inclusive boundaries and
+single outside-range cases for both modes, exact ordered proposals, percent/raw
+separation, absent/duplicate pointers, toggle/reversion, rejected setter, read-time
+outliers, missing-plan status and all lifecycle resets without writes. Queue273,
+signature88 plus48 negative gate self-tests pass. Both changed modules pass syntax
+compilation. No UI widgets or locale resources changed for this internal feature;
+no new simulator visual check needed. MSP217/global timeouts/Save/MSP218 unchanged.
+
+
+## Consistent three-row telemetry section (2026-11-12)
+
+Always render three port rows. Known absent ports use Not fitted; existing but
+unresolved ports use Not readable; unknown models use neutral Port1/2/3 labels
+without asserting absence. No additional model encoding or edit permission.
+Lua5.4.6:2229 decoder/page checks,273 queue checks; page syntax and diff whitespace
+checks pass. Covered one/two/three-port and unknown models, absence vs unresolved
+and static-only placeholder rows. X20PRO EU nightly26 simulator confirms reference
+Front Off / Side KONTRONIK / Middle Not fitted; screenshot telemetry-three-rows.png
+in simulators/X20PRO_EU@nightly26/scripts/rfsuite.user/ (ignored). Existing port
+setters and write restrictions unchanged. No localization files changed.

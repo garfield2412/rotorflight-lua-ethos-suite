@@ -2864,6 +2864,12 @@
               "needs_translation": false,
               "translation": "Bluetooth interface"
             },
+            "bluetooth_hint": {
+              "english": "Bluetooth turns off at motor start",
+              "max_length": 34,
+              "needs_translation": false,
+              "translation": "Bluetooth turns off at motor start"
+            },
             "brake": {
               "english": "Brake",
               "max_length": 5,
@@ -2883,16 +2889,16 @@
               "translation": "Restore Bluetooth with the module button"
             },
             "bt_disable_motor_renable_button": {
-              "english": "Disable after first run",
-              "max_length": 23,
-              "needs_translation": false,
-              "translation": "Disable after first run"
-            },
-            "bt_disable_motor_renable_motor_stop": {
-              "english": "Disable while running",
+              "english": "Re-enable with button",
               "max_length": 21,
               "needs_translation": false,
-              "translation": "Disable while running"
+              "translation": "Re-enable with button"
+            },
+            "bt_disable_motor_renable_motor_stop": {
+              "english": "Re-enable at motor stop",
+              "max_length": 23,
+              "needs_translation": false,
+              "translation": "Re-enable at motor stop"
             },
             "bt_stop_note": {
               "english": "Restore Bluetooth when the motor stops",

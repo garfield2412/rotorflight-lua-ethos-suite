@@ -5433,16 +5433,16 @@
               "max_length": 14
             },
             "bt_disable_motor_renable_button": {
-              "english": "Disable after first run",
-              "translation": "Disable after first run",
-              "needs_translation": false,
-              "max_length": 23
-            },
-            "bt_disable_motor_renable_motor_stop": {
-              "english": "Disable while running",
-              "translation": "Disable while running",
+              "english": "Re-enable with button",
+              "translation": "Re-enable with button",
               "needs_translation": false,
               "max_length": 21
+            },
+            "bt_disable_motor_renable_motor_stop": {
+              "english": "Re-enable at motor stop",
+              "translation": "Re-enable at motor stop",
+              "needs_translation": false,
+              "max_length": 23
             },
             "discharge_limit": {
               "english": "Discharge Limit *",
@@ -5947,6 +5947,12 @@
               "translation": "Event description",
               "needs_translation": false,
               "max_length": 17
+            },
+            "bluetooth_hint": {
+              "english": "Bluetooth turns off at motor start",
+              "translation": "Bluetooth turns off at motor start",
+              "needs_translation": false,
+              "max_length": 34
             },
             "bluetooth": {
               "english": "Bluetooth interface",

@@ -8,6 +8,8 @@ local isSimulator = system and system.getVersion and system.getVersion().simulat
 
 -- Encoded pointers, not ordinal slots. Values remain raw until field projection.
 local POINTERS = {
+  brake_pwm_min = 0x3040, brake_pwm_max = 0x3042,
+  brake_slew_up = 0x200E, brake_slew_down = 0x203E,
   bec_voltage = 0x2010, brake_position = 0x2016, off_position = 0x2018,
   max_position = 0x201A, slewrate_up = 0x2022, slewrate_down = 0x2024,
   startuptime = 0x2026, ["p-gain"] = 0x2028, motor_resist = 0x202A,
@@ -47,6 +49,8 @@ local function project(result)
   if fields.max_discharge then fields.max_discharge = fields.max_discharge / 10 end
   if fields.discharge_limit then fields.discharge_limit = fields.discharge_limit / 10 end
   if fields.startuptime then fields.startuptime = fields.startuptime / 1000 end
+  if fields.brake_pwm_min then fields.brake_pwm_min = math.floor((fields.brake_pwm_min + 20) * 100 / 4096) end
+  if fields.brake_pwm_max then fields.brake_pwm_max = math.floor((fields.brake_pwm_max + 20) * 100 / 4096) end
   if fields.PWM_min then fields.PWM_min = math.floor((fields.PWM_min + 20) * 100 / 4096) end
 end
 
@@ -128,6 +132,36 @@ function M.decodeBlock(buf, id, offset, total)
   return result, nil, replyId, replyOffset
 end
 
+-- K-PROG adjustData intentions, NOT MSP messages or an EEPROM encoder.
+-- Compare captured raw values; the type-3 Stick_PWM_min command takes percent.
+-- Recompute against the immutable capture so switching back cancels obsolete
+-- intentions rather than applying guessed percent-to-EEPROM conversions.
+local GOVERNOR_HELPERS = {
+  {pointer=0x3020,onMin=1280,onMax=1536,onValue=33,offMin=40,offMax=400,offValue=1,unit="percent"},
+  {pointer=0x201C,onMin=1280,onMax=1536,onValue=1365,offMin=1,offMax=500,offValue=327,unit="raw"},
+  {pointer=0x201E,onMin=0,onMax=0,onValue=0,offMin=1,offMax=320,offValue=204,unit="raw"},
+}
+function M.planGovernorAdjustments(snapshot,mode)
+  if (mode~=0 and mode~=1) or not snapshot or not snapshot.byPointer
+    or not snapshot.fields or snapshot.fields.rpm_ctl==nil then return nil,"unavailable" end
+  -- Check all inputs before preparing anything. Missing/ambiguous pointers
+  -- must not yield an apparently complete partial transaction.
+  for _,spec in ipairs(GOVERNOR_HELPERS) do
+    if snapshot.byPointer[spec.pointer]==nil then return nil,"unavailable" end
+  end
+  local plan={}
+  for _,spec in ipairs(GOVERNOR_HELPERS) do
+    local raw=snapshot.byPointer[spec.pointer]
+    local minimum=mode==1 and spec.onMin or spec.offMin
+    local maximum=mode==1 and spec.onMax or spec.offMax
+    if raw<minimum or raw>maximum then
+      plan[#plan+1]={pointer=spec.pointer,value=mode==1 and spec.onValue or spec.offValue,
+        unit=spec.unit,observedRaw=raw}
+    end
+  end
+  return plan
+end
+
 function M.errorKind(reason)
   if reason == true then return "msp_error" end
   if reason == "max_retries" or reason == "timeout" then return "timeout" end
@@ -138,7 +172,7 @@ end
 -- Shared firmware/capture vectors remain unchanged; transport still uses V4-r3.
 local SIM_PAIRS = isSimulator and {
   0x00, 0x20, 0xB0, 0x04, 0x00, 0x00, 0x02, 0x20, 0x02, 0x04, 0x00, 0x00,
-  0x04, 0x40, 0x75, 0x0A, 0x11, 0x00, 0x08, 0x20, 0x20, 0x03, 0x00, 0x00,
+  0x04, 0x40, 0x74, 0x0A, 0x11, 0x00, 0x08, 0x20, 0x20, 0x03, 0x00, 0x00,
   0x0A, 0x20, 0xB8, 0x0B, 0x00, 0x00, 0x0C, 0x20, 0xFC, 0x08, 0x00, 0x00,
   0x0E, 0x20, 0xF4, 0x01, 0x00, 0x00, 0x10, 0x20, 0x7C, 0x15, 0x00, 0x00,
   0x12, 0x20, 0xD0, 0x07, 0x00, 0x00, 0x14, 0x20, 0x05, 0x00, 0x00, 0x00,
@@ -151,13 +185,13 @@ local SIM_PAIRS = isSimulator and {
   0x30, 0x40, 0x30, 0x75, 0x00, 0x00, 0x34, 0x20, 0x06, 0x00, 0x00, 0x00,
   0x36, 0x20, 0x00, 0x01, 0x00, 0x00, 0x38, 0x20, 0x00, 0x00, 0x00, 0x00,
   0x3A, 0x30, 0x51, 0x00, 0x00, 0x00, 0x3C, 0x20, 0x0F, 0x00, 0x00, 0x00,
-  0x3E, 0x20, 0x69, 0x00, 0x00, 0x00, 0x40, 0x30, 0x51, 0x00, 0x00, 0x00,
+  0x3E, 0x20, 0x64, 0x00, 0x00, 0x00, 0x40, 0x30, 0x51, 0x00, 0x00, 0x00,
   0x42, 0x30, 0xD7, 0x0F, 0x00, 0x00, 0x44, 0x40, 0xC0, 0x5D, 0x00, 0x00,
   0x48, 0x20, 0x0A, 0x00, 0x00, 0x00, 0x4A, 0x20, 0x64, 0x00, 0x00, 0x00,
   0x4C, 0x20, 0xDC, 0x37, 0x00, 0x00, 0x4E, 0x20, 0xDC, 0x00, 0x00, 0x00,
   0x50, 0x20, 0x5F, 0x00, 0x00, 0x00, 0x52, 0x20, 0x5F, 0x00, 0x00, 0x00,
   0x54, 0x20, 0xE0, 0x2E, 0x00, 0x00, 0x56, 0x20, 0x00, 0x00, 0x00, 0x00,
-  0x58, 0x40, 0x95, 0x1C, 0xFD, 0xFF,
+  0x58, 0x40, 0x8F, 0x1C, 0xFD, 0xFF,
 }
 
 local function padded(buf)
